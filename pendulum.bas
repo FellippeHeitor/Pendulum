@@ -14,7 +14,7 @@ drawArena
 _DEST arena
 camera = 0
 g = .4
-ball.damping = .995
+ball.impulse = 1.005 '.995
 ball.radius = 30
 ball.velocity = 0
 ball.acceleration = 0
@@ -41,7 +41,12 @@ DO
         _DEST arena
         _PUTIMAGE , arenaBG
 
+        DIM c AS _UNSIGNED LONG
+        c = _RGB32(255, 0, 0)
         CircleFill ball.x, ball.y, ball.radius, _RGB32(255, 255, 255)
+        CircleFill ball.x, ball.y, ball.radius - 2, c
+
+
         _DEST 0
         LINE (0, ball.y)-STEP(10, 0), _RGB32(0, 255, 0)
         LINE (ball.x, _HEIGHT)-STEP(0, -10), _RGB32(0, 255, 0)
@@ -63,7 +68,16 @@ DO
     ball.velocity = 0
     ball.acceleration = 0
     ball.origin.X = ball.x + _WIDTH(gameScreen) / 4
-    IF ball.origin.X > _WIDTH(arena) THEN finished = true
+    IF ball.origin.X > _WIDTH(arena) THEN
+        finished = true
+        ball.origin.Y = 0
+    ELSE
+        DO
+            ball.origin.Y = _RED32(POINT(ball.origin.X, 0))
+            IF ball.origin.Y > 0 THEN EXIT DO
+            ball.origin.X = ball.origin.X + 1
+        LOOP
+    END IF
     diff.y = ball.origin.Y - ball.y
     diff.x = ball.origin.X - ball.x
     ball.angle = _ATAN2(-1 * diff.y, diff.x) - _D2R(90)
@@ -72,7 +86,7 @@ DO
     DO
         ball.acceleration = (-1 * g / ball.arm) * SIN(ball.angle)
         ball.velocity = ball.velocity + ball.acceleration
-        'ball.velocity = ball.velocity * ball.damping
+        ball.velocity = ball.velocity * ball.impulse
         ball.angle = ball.angle + ball.velocity
 
         ball.x = ball.origin.X + (ball.arm * SIN(ball.angle))
@@ -81,10 +95,9 @@ DO
         _DEST arena
         _PUTIMAGE , arenaBG
 
-        DIM c AS _UNSIGNED LONG
         LINE (ball.x, ball.y)-(ball.origin.X, ball.origin.Y), _RGB32(255, 255, 255)
-        c = _RGB32(255, 255, 255)
-        CircleFill ball.x, ball.y, ball.radius, c
+        CircleFill ball.x, ball.y, ball.radius, _RGB32(255, 255, 255)
+        CircleFill ball.x, ball.y, ball.radius - 2, c
 
         _DEST 0
 
@@ -101,7 +114,7 @@ DO
 
         IF showVars THEN
             LOCATE 1, 1
-            PRINT ball.damping
+            PRINT ball.impulse
             PRINT ball.radius
             PRINT ball.velocity
             PRINT ball.acceleration
@@ -215,10 +228,23 @@ SUB drawArena
     SHARED arenaBG
     _DEST arenaBG
     _BLEND
-    CLS
+    CLS , _RGB32(255, 255, 255)
     FOR i = 1 TO 200
         LINE (RND * _WIDTH, RND * _HEIGHT)-(RND * _WIDTH, RND * _HEIGHT), _RGBA32(RND * 256, RND * 256, RND * 256, RND * 200), BF
     NEXT
+
+    blockSize = 100
+    margin = 3
+    FOR i = 0 TO _WIDTH STEP blockSize
+        h = RND * 150 + 50
+        LINE (i, 0)-STEP(100, h), _RGB32(0, 0, 0), BF
+        LINE (i + margin, 0)-STEP(blockSize - (margin * 2), h - margin), _RGB32(h, h, h), BF
+
+        h = RND * 100 + 50
+        LINE (i, _HEIGHT)-STEP(100, -h), _RGB32(0, 0, 0), BF
+        LINE (i + margin, _HEIGHT)-STEP(blockSize - (margin * 2), -(h - margin)), _RGB32(h, h, h), BF
+    NEXT
     _DONTBLEND
+    _SOURCE arenaBG
 END SUB
 
