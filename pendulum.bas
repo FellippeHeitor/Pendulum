@@ -3,10 +3,13 @@ CONST showVars = false
 
 _TITLE "I came in like a wreeeeeecking ball..."
 
-gameScreen = _NEWIMAGE(800, 600, 32)
+gameWidth = 900
+gameHeight = 650
+
+gameScreen = _NEWIMAGE(gameWidth, gameHeight, 32)
 SCREEN gameScreen
 COLOR , _RGBA32(0, 0, 0, 0)
-arena = _NEWIMAGE(4800, 600, 32)
+arena = _NEWIMAGE(gameWidth * 6, gameHeight, 32)
 arenaBG = _COPYIMAGE(arena)
 
 drawArena
@@ -14,10 +17,10 @@ drawArena
 _DEST arena
 camera = 0
 g = .4
-ball.impulse = 1.005 '.995
+ball.impulse = 1.002 '.995
 ball.radius = 30
-ball.velocity = 0
-ball.acceleration = 0
+ball.y.velocity = 0
+ball.y.acceleration = 0
 ball.origin.X = _WIDTH(gameScreen) / 2
 ball.origin.Y = 0
 ball.x = 0
@@ -28,14 +31,14 @@ levelOSD = TIMER
 
 DO
     DO
-        ball.acceleration = ball.acceleration + g / 10
-        ball.velocity = ball.velocity + ball.acceleration
-        ball.y = ball.y + ball.velocity
+        ball.y.acceleration = ball.y.acceleration + g / 10
+        ball.y.velocity = ball.y.velocity + ball.y.acceleration
+        ball.y = ball.y + ball.y.velocity
 
         IF ball.y - ball.radius / 2 > _HEIGHT THEN
             ball.y = 0
-            ball.acceleration = 0
-            ball.velocity = 0
+            ball.y.acceleration = 0
+            ball.y.velocity = 0
         END IF
 
         _DEST arena
@@ -51,6 +54,15 @@ DO
         LINE (0, ball.y)-STEP(10, 0), _RGB32(0, 255, 0)
         LINE (ball.x, _HEIGHT)-STEP(0, -10), _RGB32(0, 255, 0)
 
+        IF ball.x + camera > _WIDTH / 2 + _WIDTH / 5 THEN
+            camera = (_WIDTH / 2 + _WIDTH / 5) - ball.x
+        ELSEIF ball.x + camera < _WIDTH / 3 THEN
+            camera = _WIDTH / 3 - ball.x
+        END IF
+
+        IF camera > 0 THEN camera = 0
+        IF camera < -(_WIDTH(arena) - _WIDTH(gameScreen)) THEN camera = -(_WIDTH(arena) - _WIDTH(gameScreen))
+
         _PUTIMAGE (camera, 0), arena, _DISPLAY
 
         IF TIMER - levelOSD < 1.5 THEN
@@ -65,9 +77,9 @@ DO
         _LIMIT 60
     LOOP UNTIL _KEYHIT = 13
 
-    ball.velocity = 0
-    ball.acceleration = 0
-    ball.origin.X = ball.x + _WIDTH(gameScreen) / 4
+    ball.y.velocity = 0
+    ball.y.acceleration = 0
+    ball.origin.X = ball.x + _WIDTH(gameScreen) / 6
     IF ball.origin.X > _WIDTH(arena) THEN
         finished = true
         ball.origin.Y = 0
@@ -84,10 +96,10 @@ DO
     ball.arm = dist(ball.x, ball.y, ball.origin.X, ball.origin.Y)
 
     DO
-        ball.acceleration = (-1 * g / ball.arm) * SIN(ball.angle)
-        ball.velocity = ball.velocity + ball.acceleration
-        ball.velocity = ball.velocity * ball.impulse
-        ball.angle = ball.angle + ball.velocity
+        ball.y.acceleration = (-1 * g / ball.arm) * SIN(ball.angle)
+        ball.y.velocity = ball.y.velocity + ball.y.acceleration
+        ball.y.velocity = ball.y.velocity * ball.impulse
+        ball.angle = ball.angle + ball.y.velocity
 
         ball.x = ball.origin.X + (ball.arm * SIN(ball.angle))
         ball.y = ball.origin.Y + (ball.arm * COS(ball.angle))
@@ -116,8 +128,8 @@ DO
             LOCATE 1, 1
             PRINT ball.impulse
             PRINT ball.radius
-            PRINT ball.velocity
-            PRINT ball.acceleration
+            PRINT ball.y.velocity
+            PRINT ball.y.acceleration
             PRINT ball.origin.X
             PRINT ball.origin.Y
             PRINT ball.angle
@@ -167,17 +179,20 @@ DO
         camera = 0
         ball.x = 0
         ball.y = 0
-        ball.acceleration = 0
-        ball.velocity = 0
+        ball.y.acceleration = 0
+        ball.y.velocity = 0
         level = level + 1
         levelOSD = TIMER
         drawArena
     END IF
-
 LOOP
 
 FUNCTION dist! (x1!, y1!, x2!, y2!)
     dist! = SQR((x2! - x1!) ^ 2 + (y2! - y1!) ^ 2)
+END FUNCTION
+
+FUNCTION map! (value!, minRange!, maxRange!, newMinRange!, newMaxRange!)
+    map! = ((value! - minRange!) / (maxRange! - minRange!)) * (newMaxRange! - newMinRange!) + newMinRange!
 END FUNCTION
 
 SUB CircleFill (CX AS LONG, CY AS LONG, R AS LONG, C AS _UNSIGNED LONG)
@@ -236,12 +251,16 @@ SUB drawArena
     blockSize = 100
     margin = 3
     FOR i = 0 TO _WIDTH STEP blockSize
+        LINE (i, 0)-STEP(blockSize - 1, _HEIGHT), _RGBA32(0, 0, 0, map(i, 0, _WIDTH, 200, 0)), BF
+
+        'top block
         h = RND * 150 + 50
-        LINE (i, 0)-STEP(100, h), _RGB32(0, 0, 0), BF
+        LINE (i, 0)-STEP(blockSize, h), _RGB32(0, 0, 0), BF
         LINE (i + margin, 0)-STEP(blockSize - (margin * 2), h - margin), _RGB32(h, h, h), BF
 
-        h = RND * 100 + 50
-        LINE (i, _HEIGHT)-STEP(100, -h), _RGB32(0, 0, 0), BF
+        'bottom block
+        h = RND * blockSize + 50
+        LINE (i, _HEIGHT)-STEP(blockSize, -h), _RGB32(0, 0, 0), BF
         LINE (i + margin, _HEIGHT)-STEP(blockSize - (margin * 2), -(h - margin)), _RGB32(h, h, h), BF
     NEXT
     _DONTBLEND
