@@ -5,73 +5,103 @@ _TITLE "I came in like a wreeeeeecking ball..."
 SCREEN _NEWIMAGE(800, 600, 32)
 g = .4
 ball.damping = .995
-ball.radius = 70
+ball.radius = 30
 ball.velocity = 0
 ball.acceleration = 0
 ball.origin.X = _WIDTH / 2
 ball.origin.Y = 0
-ball.angle = _PI / 4
-ball.arm = 400
 ball.x = 0
 ball.y = 0
 
 DO
-    WHILE _MOUSEINPUT: WEND
-    mouseX = _MOUSEX
-    mouseY = _MOUSEY
+    DO
+        ball.acceleration = ball.acceleration + g / 10
+        ball.velocity = ball.velocity + ball.acceleration
+        ball.y = ball.y + ball.velocity
 
-    IF _MOUSEBUTTON(1) THEN
-        IF NOT mouseDown THEN
-            mouseDown = true
-            IF dist(mouseX, mouseY, ball.x, ball.y) < ball.radius THEN
-                dragging = true
-            END IF
-        END IF
-    ELSE
-        IF dist(mouseX, mouseY, ball.x, ball.y) < ball.radius THEN hovering = true ELSE hovering = false
-        mouseDown = false
-        IF dragging THEN
-            dragging = false
+        IF ball.y - ball.radius / 2 > _HEIGHT THEN
+            ball.y = 0
+            ball.acceleration = 0
             ball.velocity = 0
         END IF
-    END IF
 
-    IF NOT dragging THEN
-        ball.acceleration = (-1 * g / ball.arm) * SIN(ball.angle)
-        ball.velocity = ball.velocity + ball.acceleration
-        'ball.velocity = ball.velocity * ball.damping
-        ball.angle = ball.angle + ball.velocity
-    ELSE
-        diff.y = ball.origin.Y - mouseY
-        diff.x = ball.origin.X - mouseX
-        ball.angle = _ATAN2(-1 * diff.y, diff.x) - _D2R(90)
-    END IF
+        LINE (0, 0)-(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 170), BF
 
-    ball.x = ball.origin.X + (ball.arm * SIN(ball.angle))
-    ball.y = ball.origin.Y + (ball.arm * COS(ball.angle))
+        CircleFill ball.x, ball.y, ball.radius, _RGB32(255, 255, 255)
+        LINE (0, ball.y)-STEP(10, 0), _RGB32(0, 255, 0)
+        LINE (ball.x, _HEIGHT)-STEP(0, -10), _RGB32(0, 255, 0)
 
-    LINE (0, 0)-(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 170), BF
+        _DISPLAY
+        _LIMIT 60
+    LOOP UNTIL _KEYHIT = 13
 
-    LOCATE 1, 1
-    PRINT ball.damping
-    PRINT ball.radius
-    PRINT ball.velocity
-    PRINT ball.acceleration
-    PRINT ball.origin.X
-    PRINT ball.origin.Y
-    PRINT ball.angle
-    PRINT ball.arm
-    PRINT ball.x
-    PRINT ball.y
+    ball.velocity = 0
+    ball.acceleration = 0
+    diff.y = ball.origin.Y - ball.y
+    diff.x = ball.origin.X - ball.x
+    ball.angle = _ATAN2(-1 * diff.y, diff.x) - _D2R(90)
+    ball.arm = dist(ball.x, ball.y, ball.origin.X, ball.origin.Y)
 
-    DIM c AS _UNSIGNED LONG
-    LINE (ball.x, ball.y)-(ball.origin.X, ball.origin.Y), _RGB32(255, 255, 255)
-    IF NOT hovering AND NOT dragging THEN c = _RGB32(255, 255, 255)
-    IF hovering AND NOT dragging THEN c = _RGB32(0, 100, 100)
-    IF dragging THEN c = _RGB32(0, 255, 255)
-    CircleFill ball.x, ball.y, ball.radius, c
-    _DISPLAY
-    _LIMIT 60
+    DO
+        WHILE _MOUSEINPUT: WEND
+        mouseX = _MOUSEX
+        mouseY = _MOUSEY
+
+        IF _MOUSEBUTTON(1) THEN
+            IF NOT mouseDown THEN
+                mouseDown = true
+                IF dist(mouseX, mouseY, ball.x, ball.y) < ball.radius THEN
+                    dragging = true
+                END IF
+            END IF
+        ELSE
+            IF dist(mouseX, mouseY, ball.x, ball.y) < ball.radius THEN hovering = true ELSE hovering = false
+            mouseDown = false
+            IF dragging THEN
+                dragging = false
+                ball.velocity = 0
+            END IF
+        END IF
+
+        IF NOT dragging THEN
+            ball.acceleration = (-1 * g / ball.arm) * SIN(ball.angle)
+            ball.velocity = ball.velocity + ball.acceleration
+            'ball.velocity = ball.velocity * ball.damping
+            ball.angle = ball.angle + ball.velocity
+        ELSE
+            diff.y = ball.origin.Y - mouseY
+            diff.x = ball.origin.X - mouseX
+            ball.angle = _ATAN2(-1 * diff.y, diff.x) - _D2R(90)
+        END IF
+
+        ball.x = ball.origin.X + (ball.arm * SIN(ball.angle))
+        ball.y = ball.origin.Y + (ball.arm * COS(ball.angle))
+
+        LINE (0, 0)-(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 170), BF
+
+        LOCATE 1, 1
+        PRINT ball.damping
+        PRINT ball.radius
+        PRINT ball.velocity
+        PRINT ball.acceleration
+        PRINT ball.origin.X
+        PRINT ball.origin.Y
+        PRINT ball.angle
+        PRINT ball.arm
+        PRINT ball.x
+        PRINT ball.y
+
+        DIM c AS _UNSIGNED LONG
+        LINE (ball.x, ball.y)-(ball.origin.X, ball.origin.Y), _RGB32(255, 255, 255)
+        IF NOT hovering AND NOT dragging THEN c = _RGB32(255, 255, 255)
+        IF hovering AND NOT dragging THEN c = _RGB32(0, 100, 100)
+        IF dragging THEN c = _RGB32(0, 255, 255)
+        CircleFill ball.x, ball.y, ball.radius, c
+        LINE (0, ball.y)-STEP(10, 0), _RGB32(0, 255, 0)
+        LINE (ball.x, _HEIGHT)-STEP(0, -10), _RGB32(0, 255, 0)
+        _DISPLAY
+        _LIMIT 60
+    LOOP UNTIL _KEYHIT = 27
 LOOP
 
 FUNCTION dist! (x1!, y1!, x2!, y2!)
