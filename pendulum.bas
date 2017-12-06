@@ -35,6 +35,7 @@ REDIM SHARED block(200) AS newItem
 REDIM SHARED particle(200) AS newItem
 DIM SHARED totalBlocks AS LONG, totalParticles AS LONG
 
+level = 1
 drawArena
 
 _DEST arena
@@ -50,8 +51,7 @@ ball.origin.Y = 0
 ball.x = 0
 ball.y = 0
 
-level = 1
-levelOSD = TIMER
+levelStarted = TIMER
 
 g = .4
 
@@ -105,11 +105,11 @@ DO
         _PUTIMAGE (camera, 0), arena
         '_PUTIMAGE (0, _HEIGHT - 40)-(_WIDTH - 1, _HEIGHT - 1), arena 'PIP
 
-        IF TIMER - levelOSD < 1.5 THEN
-            m$ = "Level" + STR$(level)
-            _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
-        END IF
-        m$ = STR$(TIMER - levelOSD)
+        'IF TIMER - levelStarted < 1.5 THEN
+        '    m$ = "Level" + STR$(level)
+        '    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
+        'END IF
+        m$ = STR$(TIMER - levelStarted)
         m$ = LEFT$(m$, INSTR(m$, ".") + 1)
         _PRINTSTRING (_WIDTH - _PRINTWIDTH(m$), _HEIGHT - _FONTHEIGHT), m$
 
@@ -197,12 +197,12 @@ DO
             m$ = "You made it!"
             _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
         ELSE
-            IF TIMER - levelOSD < 1.5 THEN
-                m$ = "Level" + STR$(level)
-                _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
-            END IF
+            'IF TIMER - levelStarted < 1.5 THEN
+            '    m$ = "Level" + STR$(level)
+            '    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
+            'END IF
 
-            m$ = STR$(TIMER - levelOSD)
+            m$ = STR$(TIMER - levelStarted)
             m$ = LEFT$(m$, INSTR(m$, ".") + 1)
             _PRINTSTRING (_WIDTH - _PRINTWIDTH(m$), _HEIGHT - _FONTHEIGHT), m$
         END IF
@@ -218,21 +218,25 @@ DO
         finished = false
         madeIt = false
         timeFinished = TIMER
-        t.m$ = STR$(timeFinished - levelOSD)
+        t.m$ = STR$(timeFinished - levelStarted)
         t.m$ = LEFT$(t.m$, INSTR(t.m$, ".") + 1)
 
-        _DEST arena
-        _PUTIMAGE (camera / 2, 0), arenaBG
-        drawBlocks
-        _DEST 0
-        _PUTIMAGE (camera, 0), arena
+        DO UNTIL _KEYHIT = 32
+            _DEST arena
+            _PUTIMAGE (camera / 2, 0), arenaBG
+            drawBlocks
+            processParticles
+            showParticles
+            _DEST 0
+            _PUTIMAGE (camera, 0), arena
 
-        m$ = "You made it in" + t.m$ + " seconds!"
-        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
-        m$ = "(hit space)"
-        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), m$
-
-        DO UNTIL _KEYHIT = 32: _DISPLAY: _LIMIT 30: LOOP
+            m$ = "You made it in" + t.m$ + " seconds!"
+            _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
+            m$ = "(hit space)"
+            _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), m$
+            _DISPLAY
+            _LIMIT 30
+        LOOP
 
         camera = 0
         ball.x = 0
@@ -242,8 +246,8 @@ DO
         ball.x.acceleration = 0
         ball.x.velocity = 0
         level = level + 1
-        levelOSD = TIMER
         drawArena
+        levelStarted = TIMER
     ELSE
         mag = ball.y.velocity * 1000
         IF mag > 10 THEN mag = 10
@@ -306,12 +310,29 @@ END SUB
 
 
 SUB drawArena
-    SHARED arenaBG
+    SHARED arenaBG, level
+    STATIC loadingHUD
+
+    IF loadingHUD = 0 THEN
+        loadingHUD = _NEWIMAGE(_WIDTH(0) / 2, _HEIGHT(0) / 2, 32)
+    END IF
+
+    _DEST loadingHUD
+    CLS , 0
+    m$ = "Level" + STR$(level)
+    COLOR , 0
+    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
+
     _DEST arenaBG
     _BLEND
     CLS , _RGB32(255, 255, 255)
-    FOR i = 1 TO 200
+    FOR i = 1 TO 25
         LINE (RND * _WIDTH, RND * _HEIGHT)-(RND * _WIDTH, RND * _HEIGHT), _RGBA32(RND * 256, RND * 256, RND * 256, RND * 200), BF
+        _DONTBLEND
+        _PUTIMAGE , arenaBG, _DISPLAY
+        _PUTIMAGE , loadingHUD, _DISPLAY
+        _BLEND
+        _DISPLAY
     NEXT
 
     blockSize = 100
@@ -325,16 +346,10 @@ SUB drawArena
         y = 0
         GOSUB addBlock
 
-        'LINE (i, y)-STEP(blockSize, h), _RGB32(0, 0, 0), BF
-        'LINE (i + margin, y)-STEP(blockSize - (margin * 2), h - margin), _RGB32(h, h, h), BF
-
         'bottom block
         h = RND * blockSize + 50
         y = _HEIGHT - h
         GOSUB addBlock
-
-        'LINE (i, y)-STEP(blockSize, -h), _RGB32(0, 0, 0), BF
-        'LINE (i + margin, _HEIGHT)-STEP(blockSize - (margin * 2), -(h - margin)), _RGB32(h, h, h), BF
     NEXT
     _DONTBLEND
     EXIT SUB
@@ -347,6 +362,7 @@ SUB drawArena
     block(totalBlocks).h = h
     block(totalBlocks).w = blockSize
     RETURN
+
 END SUB
 
 SUB ThickLine (x, y, x1, y1, c AS _UNSIGNED LONG, t)
