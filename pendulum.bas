@@ -9,9 +9,9 @@ gameHeight = 650
 gameScreen = _NEWIMAGE(gameWidth, gameHeight, 32)
 SCREEN gameScreen
 COLOR , _RGBA32(0, 0, 0, 0)
-arena = _NEWIMAGE(gameWidth * 10, gameHeight, 32)
+arena = _NEWIMAGE(gameWidth * 10, gameHeight * 1.5, 32)
 _SOURCE arena
-arenaBG = _NEWIMAGE(gameWidth * 20, gameHeight, 32)
+arenaBG = _NEWIMAGE(gameWidth * 20, gameHeight * 1.5, 32)
 
 CONST FIRE = 1
 CONST SMOKE = 2
@@ -49,12 +49,12 @@ ball.x.acceleration = 0
 ball.origin.X = _WIDTH(gameScreen) / 2
 ball.origin.Y = 0
 ball.x = ball.radius
-ball.y = _HEIGHT / 2
+ball.y = _HEIGHT(arena) / 2
 
 level.g = 100
 level.b = 255
 
-g = .4
+g = .3
 
 DO
     DO
@@ -66,13 +66,13 @@ DO
             'ball.x.velocity = ball.x.velocity + ball.x.acceleration
             ball.x = ball.x + ball.x.velocity
 
-            IF ball.y - ball.radius / 2 > _HEIGHT THEN
+            IF ball.y - ball.radius / 2 > _HEIGHT(arena) THEN
                 'DO
                 '    ball.y = _RED32(POINT(ball.x, 0))
                 '    IF ball.y > 0 THEN EXIT DO
                 '    ball.x = ball.x + 1
                 'LOOP
-                ball.y = _HEIGHT / 2
+                ball.y = _HEIGHT(arena) / 2
                 started = false
                 ball.y.acceleration = 0
                 ball.y.velocity = 0
@@ -88,6 +88,7 @@ DO
         IF ball.x - ball.radius > _WIDTH(arena) THEN madeIt = true: EXIT DO
 
         cameraCenter = 3
+        cameraCenterY = 2
 
         IF ball.x + camera > _WIDTH / cameraCenter THEN
             camera = (_WIDTH / cameraCenter) - ball.x
@@ -95,8 +96,18 @@ DO
             camera = _WIDTH / cameraCenter - ball.x
         END IF
 
+        IF ball.y + cameraY > _HEIGHT / cameraCenterY THEN
+            cameraY = (_HEIGHT / cameraCenterY) - ball.y
+        ELSEIF ball.y + cameraY < _HEIGHT / cameraCenterY THEN
+            cameraY = _HEIGHT / cameraCenterY - ball.y
+        END IF
+
         IF camera > 0 THEN camera = 0
         IF camera < -(_WIDTH(arena) - _WIDTH(gameScreen)) THEN camera = -(_WIDTH(arena) - _WIDTH(gameScreen))
+
+        IF cameraY > 0 THEN cameraY = 0
+        IF cameraY < -(_HEIGHT(arena) - _HEIGHT(gameScreen)) THEN cameraY = -(_HEIGHT(arena) - _HEIGHT(gameScreen))
+
 
         _DEST arena
         _DONTBLEND
@@ -109,7 +120,7 @@ DO
 
         _DEST 0
 
-        _PUTIMAGE (camera, 0), arena
+        _PUTIMAGE (camera, cameraY), arena
         '_PUTIMAGE (0, _HEIGHT - 40)-(_WIDTH - 1, _HEIGHT - 1), arena 'PIP
 
         IF NOT started THEN
@@ -171,8 +182,17 @@ DO
             camera = _WIDTH / cameraCenter - ball.x
         END IF
 
+        IF ball.y + cameraY > _HEIGHT / cameraCenterY THEN
+            cameraY = (_HEIGHT / cameraCenterY) - ball.y
+        ELSEIF ball.y + cameraY < _HEIGHT / cameraCenterY THEN
+            cameraY = _HEIGHT / cameraCenterY - ball.y
+        END IF
+
         IF camera > 0 THEN camera = 0
         IF camera < -(_WIDTH(arena) - _WIDTH(gameScreen)) THEN camera = -(_WIDTH(arena) - _WIDTH(gameScreen))
+
+        IF cameraY > 0 THEN cameraY = 0
+        IF cameraY < -(_HEIGHT(arena) - _HEIGHT(gameScreen)) THEN cameraY = -(_HEIGHT(arena) - _HEIGHT(gameScreen))
 
         _DEST arena
         _DONTBLEND
@@ -191,7 +211,7 @@ DO
         showParticles
 
         _DEST 0
-        _PUTIMAGE (camera, 0), arena
+        _PUTIMAGE (camera, cameraY), arena
         '_PUTIMAGE (0, _HEIGHT - 40)-(_WIDTH - 1, _HEIGHT - 1), arena 'PIP
 
         IF showVars THEN
@@ -206,7 +226,7 @@ DO
             PRINT ball.arm
             PRINT ball.x
             PRINT ball.y
-            PRINT camera
+            PRINT camera, cameraY
         END IF
 
         IF finished THEN
@@ -243,7 +263,7 @@ DO
             processParticles
             showParticles
             _DEST 0
-            _PUTIMAGE (camera, 0), arena
+            _PUTIMAGE (camera, cameraY), arena
 
             m$ = "You made it in" + t.m$ + " seconds!"
             _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
@@ -255,8 +275,9 @@ DO
         LOOP UNTIL k = 32
 
         camera = 0
+        cameraY = 0
         ball.x = ball.radius
-        ball.y = _HEIGHT / 2
+        ball.y = _HEIGHT(arena) / 2
         ball.y.acceleration = 0
         ball.y.velocity = 0
         ball.x.acceleration = 0
@@ -360,12 +381,12 @@ SUB drawArena
     FOR i = 0 TO _WIDTH(arena) STEP blockSize
         LINE (i, 0)-STEP(blockSize - 1, _HEIGHT), _RGBA32(0, 0, 0, map(i, 0, _WIDTH, 160, 50)), BF
         'top block
-        h = RND * 150 + 50
+        h = RND * 206 + 50
         y = 0
         GOSUB addBlock
 
         'bottom block
-        h = RND * blockSize + 50
+        h = RND * 400 + 100
         y = _HEIGHT(arena) - h
         GOSUB addBlock
     NEXT
