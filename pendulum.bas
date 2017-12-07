@@ -51,6 +51,9 @@ ball.origin.Y = 0
 ball.x = ball.radius
 ball.y = _HEIGHT / 2
 
+level.g = 100
+level.b = 255
+
 g = .4
 
 DO
@@ -262,6 +265,8 @@ DO
         drawArena
         started = false
         timerSet = false
+        level.g = RND * 256
+        level.b = RND * 256
     ELSE
         mag = ball.y.velocity * 1000
         IF mag > 10 THEN mag = 10
@@ -324,7 +329,7 @@ END SUB
 
 
 SUB drawArena
-    SHARED arenaBG, level
+    SHARED arena, arenaBG, level
     STATIC loadingHUD
 
     IF loadingHUD = 0 THEN
@@ -352,8 +357,8 @@ SUB drawArena
     blockSize = 100
     margin = 3
     totalBlocks = 0
-    FOR i = 0 TO _WIDTH STEP blockSize
-        LINE (i, 0)-STEP(blockSize - 1, _HEIGHT), _RGBA32(0, 0, 0, map(i, 0, _WIDTH, 160, 0)), BF
+    FOR i = 0 TO _WIDTH(arena) STEP blockSize
+        LINE (i, 0)-STEP(blockSize - 1, _HEIGHT), _RGBA32(0, 0, 0, map(i, 0, _WIDTH, 160, 50)), BF
         'top block
         h = RND * 150 + 50
         y = 0
@@ -361,7 +366,7 @@ SUB drawArena
 
         'bottom block
         h = RND * blockSize + 50
-        y = _HEIGHT - h
+        y = _HEIGHT(arena) - h
         GOSUB addBlock
     NEXT
     _DONTBLEND
@@ -388,7 +393,9 @@ SUB ThickLine (x, y, x1, y1, c AS _UNSIGNED LONG, t)
 END SUB
 
 SUB drawBlocks
-    SHARED camera
+    SHARED camera, level
+    SHARED level.g, level.b
+
     margin = 3
     loopStart = INT(ABS(camera) / (block(1).w / 2)) - 2
     IF loopStart < 1 THEN loopStart = 1
@@ -399,7 +406,7 @@ SUB drawBlocks
         h = block(j).h
         blocksize = block(j).w
         LINE (i, y - margin)-STEP(blocksize, h + margin), _RGB32(0, 0, 0), BF
-        LINE (i + margin, y)-STEP(blocksize - (margin * 2), h - margin), _RGB32(h, h, h), BF
+        LINE (i + margin, y)-STEP(blocksize - (margin * 2), h - margin), _RGB32(h, level.g, level.b), BF
         IF showVars THEN _PRINTSTRING (i, y), STR$(j)
     NEXT
 END SUB
