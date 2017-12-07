@@ -48,32 +48,34 @@ ball.x.velocity = 0
 ball.x.acceleration = 0
 ball.origin.X = _WIDTH(gameScreen) / 2
 ball.origin.Y = 0
-ball.x = 0
-ball.y = 0
-
-levelStarted = TIMER
+ball.x = ball.radius
+ball.y = _HEIGHT / 2
 
 g = .4
 
 DO
     DO
-        ball.y.acceleration = ball.y.acceleration + g / 10
-        ball.y.velocity = ball.y.velocity + ball.y.acceleration
-        ball.y = ball.y + ball.y.velocity
+        IF started THEN
+            ball.y.acceleration = ball.y.acceleration + g / 10
+            ball.y.velocity = ball.y.velocity + ball.y.acceleration
+            ball.y = ball.y + ball.y.velocity
 
-        'ball.x.velocity = ball.x.velocity + ball.x.acceleration
-        ball.x = ball.x + ball.x.velocity
+            'ball.x.velocity = ball.x.velocity + ball.x.acceleration
+            ball.x = ball.x + ball.x.velocity
 
-        IF ball.y - ball.radius / 2 > _HEIGHT THEN
-            DO
-                ball.y = _RED32(POINT(ball.x, 0))
-                IF ball.y > 0 THEN EXIT DO
-                ball.x = ball.x + 1
-            LOOP
-            ball.y.acceleration = 0
-            ball.y.velocity = 0
-            ball.x.acceleration = 0
-            ball.x.velocity = 0
+            IF ball.y - ball.radius / 2 > _HEIGHT THEN
+                'DO
+                '    ball.y = _RED32(POINT(ball.x, 0))
+                '    IF ball.y > 0 THEN EXIT DO
+                '    ball.x = ball.x + 1
+                'LOOP
+                ball.y = _HEIGHT / 2
+                started = false
+                ball.y.acceleration = 0
+                ball.y.velocity = 0
+                ball.x.acceleration = 0
+                ball.x.velocity = 0
+            END IF
         END IF
 
         FOR p = 1 TO 30
@@ -82,10 +84,12 @@ DO
 
         IF ball.x - ball.radius > _WIDTH(arena) THEN madeIt = true: EXIT DO
 
-        IF ball.x + camera > _WIDTH / 3 + _WIDTH / 5 THEN
-            camera = (_WIDTH / 3 + _WIDTH / 5) - ball.x
-        ELSEIF ball.x + camera < _WIDTH / 3 THEN
-            camera = _WIDTH / 3 - ball.x
+        cameraCenter = 3
+
+        IF ball.x + camera > _WIDTH / cameraCenter THEN
+            camera = (_WIDTH / cameraCenter) - ball.x
+        ELSEIF ball.x + camera < _WIDTH / cameraCenter THEN
+            camera = _WIDTH / cameraCenter - ball.x
         END IF
 
         IF camera > 0 THEN camera = 0
@@ -105,17 +109,26 @@ DO
         _PUTIMAGE (camera, 0), arena
         '_PUTIMAGE (0, _HEIGHT - 40)-(_WIDTH - 1, _HEIGHT - 1), arena 'PIP
 
-        'IF TIMER - levelStarted < 1.5 THEN
-        '    m$ = "Level" + STR$(level)
-        '    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
-        'END IF
-        m$ = STR$(TIMER - levelStarted)
-        m$ = LEFT$(m$, INSTR(m$, ".") + 1)
-        _PRINTSTRING (_WIDTH - _PRINTWIDTH(m$), _HEIGHT - _FONTHEIGHT), m$
+        IF NOT started THEN
+            IF NOT timerSet THEN m$ = "Hold ENTER to start..." ELSE m$ = "Hold ENTER to continue..."
+            _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
+        END IF
+
+        IF timerSet THEN
+            m$ = STR$(TIMER - levelStarted)
+            m$ = LEFT$(m$, INSTR(m$, ".") + 1)
+            _PRINTSTRING (_WIDTH - _PRINTWIDTH(m$), _HEIGHT - _FONTHEIGHT), m$
+        END IF
 
         _DISPLAY
         _LIMIT 60
     LOOP WHILE _KEYDOWN(13) = false
+
+    started = true
+    IF timerSet = false THEN
+        timerSet = true
+        levelStarted = TIMER
+    END IF
 
     ball.y.acceleration = ball.y.acceleration / 50
     ball.y.velocity = ball.y.acceleration
@@ -149,10 +162,10 @@ DO
             addParticle ball.x + COS(p) * (RND * ball.radius), ball.y + SIN(p) * (RND * ball.radius), FIRE
         NEXT
 
-        IF ball.x + camera > _WIDTH / 3 + _WIDTH / 5 THEN
-            camera = (_WIDTH / 3 + _WIDTH / 5) - ball.x
-        ELSEIF ball.x + camera < _WIDTH / 3 THEN
-            camera = _WIDTH / 3 - ball.x
+        IF ball.x + camera > _WIDTH / cameraCenter THEN
+            camera = (_WIDTH / cameraCenter) - ball.x
+        ELSEIF ball.x + camera < _WIDTH / cameraCenter THEN
+            camera = _WIDTH / cameraCenter - ball.x
         END IF
 
         IF camera > 0 THEN camera = 0
@@ -197,14 +210,11 @@ DO
             m$ = "You made it!"
             _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
         ELSE
-            'IF TIMER - levelStarted < 1.5 THEN
-            '    m$ = "Level" + STR$(level)
-            '    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
-            'END IF
-
-            m$ = STR$(TIMER - levelStarted)
-            m$ = LEFT$(m$, INSTR(m$, ".") + 1)
-            _PRINTSTRING (_WIDTH - _PRINTWIDTH(m$), _HEIGHT - _FONTHEIGHT), m$
+            IF started THEN
+                m$ = STR$(TIMER - levelStarted)
+                m$ = LEFT$(m$, INSTR(m$, ".") + 1)
+                _PRINTSTRING (_WIDTH - _PRINTWIDTH(m$), _HEIGHT - _FONTHEIGHT), m$
+            END IF
         END IF
 
         _DISPLAY
@@ -221,9 +231,11 @@ DO
         t.m$ = STR$(timeFinished - levelStarted)
         t.m$ = LEFT$(t.m$, INSTR(t.m$, ".") + 1)
 
-        DO UNTIL _KEYHIT = 32
+        DO
             _DEST arena
+            _DONTBLEND
             _PUTIMAGE (camera / 2, 0), arenaBG
+            _BLEND
             drawBlocks
             processParticles
             showParticles
@@ -234,20 +246,22 @@ DO
             _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
             m$ = "(hit space)"
             _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2 + _FONTHEIGHT), m$
+            k = _KEYHIT
             _DISPLAY
-            _LIMIT 30
-        LOOP
+            _LIMIT 60
+        LOOP UNTIL k = 32
 
         camera = 0
-        ball.x = 0
-        ball.y = 0
+        ball.x = ball.radius
+        ball.y = _HEIGHT / 2
         ball.y.acceleration = 0
         ball.y.velocity = 0
         ball.x.acceleration = 0
         ball.x.velocity = 0
         level = level + 1
         drawArena
-        levelStarted = TIMER
+        started = false
+        timerSet = false
     ELSE
         mag = ball.y.velocity * 1000
         IF mag > 10 THEN mag = 10
@@ -469,7 +483,7 @@ SUB processParticles
                         particle(i).color = _RGBA32(255, g, b, a)
                     END IF
                 CASE SMOKE
-                    maxSmoke = 10
+                    maxSmoke = 15
                     particle(i).color = _RGBA32(33, 17, 39, map(particle(i).generation, 1, maxSmoke, 200, 0))
                     IF particle(i).generation > maxSmoke THEN particle(i).active = false
             END SELECT
