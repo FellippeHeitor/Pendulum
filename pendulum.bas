@@ -115,7 +115,7 @@ DO
 
         _DISPLAY
         _LIMIT 60
-    LOOP UNTIL _KEYHIT = 13
+    LOOP WHILE _KEYDOWN(13) = false
 
     ball.y.acceleration = ball.y.acceleration / 50
     ball.y.velocity = ball.y.acceleration
@@ -210,9 +210,9 @@ DO
         _DISPLAY
         _LIMIT 60
 
-        IF NOT finished THEN k = _KEYHIT ELSE k = 0
+        IF NOT finished THEN k = (_KEYDOWN(13) = false) ELSE k = 0
         IF ball.x - ball.radius > _WIDTH(arena) THEN madeIt = true
-    LOOP UNTIL k = -13 OR madeIt
+    LOOP UNTIL k OR madeIt
 
     IF finished OR madeIt THEN
         finished = false
@@ -340,7 +340,6 @@ SUB drawArena
     totalBlocks = 0
     FOR i = 0 TO _WIDTH STEP blockSize
         LINE (i, 0)-STEP(blockSize - 1, _HEIGHT), _RGBA32(0, 0, 0, map(i, 0, _WIDTH, 160, 0)), BF
-
         'top block
         h = RND * 150 + 50
         y = 0
