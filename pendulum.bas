@@ -1,33 +1,36 @@
 OPTION _EXPLICIT
-
 CONST true = -1, false = 0
-CONST showVars = false
 
 _TITLE "I came in like a wreeeeeecking ball..."
 
 DIM SHARED gameWidth AS INTEGER, gameHeight AS INTEGER
+DIM SHARED arenaWidth AS INTEGER, arenaHeight AS INTEGER
 DIM SHARED gameScreen AS LONG, arena AS LONG, arenaBG AS LONG
 DIM SHARED level AS LONG, camera AS SINGLE
 DIM SHARED blockOffset AS INTEGER, respawnOffset AS SINGLE
 DIM SHARED ball.impulse, ball.radius, ball.y.velocity
 DIM SHARED ball.y.acceleration, ball.x.velocity, ball.x.acceleration
 DIM SHARED ball.origin.x, ball.origin.y, ball.x, ball.y
-DIM SHARED level.g, level.b, g, k AS LONG
+DIM SHARED level.g, level.b, g AS SINGLE, k AS LONG
 DIM SHARED started AS _BYTE, p AS INTEGER, tx, ty, madeIt AS _BYTE
 DIM SHARED cameraCenter AS SINGLE, cameraCenterY AS SINGLE, cameraY AS SINGLE
 DIM SHARED timerSet AS _BYTE, m$, levelStarted AS SINGLE, finished AS _BYTE
 DIM SHARED diff.y, diff.x, ball.angle, ball.arm, timeFinished AS SINGLE
-DIM SHARED t.m$, mag
+DIM SHARED t.m$, mag, showBG AS _BYTE
 
 gameWidth = 900
 gameHeight = 650
+cameraCenter = 3
+cameraCenterY = 2
 
 gameScreen = _NEWIMAGE(gameWidth, gameHeight, 32)
 SCREEN gameScreen
 COLOR , _RGBA32(0, 0, 0, 0)
-arena = _NEWIMAGE(gameWidth * 15, gameHeight * 1.5, 32)
-_SOURCE arena
+arenaWidth = gameWidth * 15
+arenaHeight = gameHeight * 1.5
+'arena = _NEWIMAGE(gameWidth * 15, gameHeight * 1.5, 32)
 arenaBG = _NEWIMAGE(gameWidth * 30, gameHeight * 1.5, 32)
+showBG = true
 
 CONST FIRE = 1
 CONST SMOKE = 2
@@ -66,7 +69,6 @@ level = 1
 setRand level
 drawArena
 
-_DEST arena
 camera = 0
 blockOffset = 200
 respawnOffset = 1.9
@@ -79,215 +81,122 @@ ball.x.acceleration = 0
 ball.origin.x = _WIDTH(gameScreen) / 2
 ball.origin.y = 0
 ball.x = ball.radius * 1.5
-ball.y = _HEIGHT(arena) / respawnOffset
+ball.y = arenaHeight / respawnOffset
 
 level.g = getRND * 256
 level.b = getRND * 256
 
+DIM SHARED state AS _BYTE
+CONST HALTED = 0
+CONST FALLING = 1
+CONST SWINGING = 2
+
 DO
-    doPhysics
-    g = .1
-    DO
-        k = _KEYHIT
-        IF k = 9 THEN GOTO setNewLevel
-        IF k = 25 AND level > 1 THEN level = level - 2: GOTO setNewLevel
-        IF started THEN
-            ball.y.acceleration = ball.y.acceleration + g / 10
-            ball.y.velocity = ball.y.velocity + ball.y.acceleration
-            ball.y = ball.y + ball.y.velocity
-
-            'ball.x.velocity = ball.x.velocity + ball.x.acceleration
-            ball.x = ball.x + ball.x.velocity
-
-            IF ball.y - ball.radius / 2 > _HEIGHT(arena) THEN
-                'DO
-                '    ball.y = _RED32(POINT(ball.x, 0))
-                '    IF ball.y > 0 THEN EXIT DO
-                '    ball.x = ball.x + 1
-                'LOOP
-                ball.y = _HEIGHT(arena) / respawnOffset
-                started = false
-                ball.y.acceleration = 0
-                ball.y.velocity = 0
-                ball.x.acceleration = 0
-                ball.x.velocity = 0
+    IF _KEYDOWN(13) THEN
+        IF state <> SWINGING THEN
+            state = SWINGING
+            started = true
+            g = .9
+            IF timerSet = false THEN
+                timerSet = true
+                levelStarted = TIMER
             END IF
+
+            ball.y.acceleration = ball.y.acceleration / 25
+            ball.y.velocity = ball.y.acceleration
+            ball.origin.x = ball.x + _WIDTH(gameScreen) / _CEIL(map(ball.y, 0, _HEIGHT, 6, 4))
+            IF ball.origin.x > arenaWidth THEN
+                finished = true
+                ball.origin.y = 0
+            ELSE
+                DO
+                    ball.origin.y = _RED32(POINT(ball.origin.x + camera, 0))
+                    IF ball.origin.y > 0 THEN EXIT DO
+                    ball.origin.x = ball.origin.x + 1
+                LOOP
+            END IF
+            ball.origin.y = ball.origin.y + blockOffset
+            diff.y = ball.origin.y - ball.y
+            diff.x = ball.origin.x - ball.x
+            ball.angle = _ATAN2(-1 * diff.y, diff.x) - _D2R(90)
+            ball.arm = dist(ball.x, ball.y, ball.origin.x, ball.origin.y)
         END IF
-
-        FOR p = 1 TO 30
-            tx = ball.x + COS(p) * (getRND * ball.radius)
-            ty = ball.y + SIN(p) * (getRND * ball.radius)
-            addParticle tx, ty, FIRE
-        NEXT
-
-        IF ball.x - ball.radius > _WIDTH(arena) THEN madeIt = true: EXIT DO
-
-        cameraCenter = 3
-        cameraCenterY = 2
-
-        IF ball.x + camera > _WIDTH / cameraCenter THEN
-            camera = (_WIDTH / cameraCenter) - ball.x
-        ELSEIF ball.x + camera < _WIDTH / cameraCenter THEN
-            camera = _WIDTH / cameraCenter - ball.x
+    ELSE
+        IF state = SWINGING THEN
+            state = FALLING
+            mag = ball.y.velocity * 1000
+            IF mag > 10 THEN mag = 10
+            IF mag < -10 THEN mag = -10
+            ball.x.velocity = COS(ball.angle) * mag
+            ball.y.velocity = -SIN(ball.angle) * mag
         END IF
+    END IF
 
-        IF ball.y + cameraY > _HEIGHT / cameraCenterY THEN
-            cameraY = (_HEIGHT / cameraCenterY) - ball.y
-        ELSEIF ball.y + cameraY < _HEIGHT / cameraCenterY THEN
-            cameraY = _HEIGHT / cameraCenterY - ball.y
-        END IF
+    k = _KEYHIT
+    IF k = 9 THEN GOTO setNewLevel
+    IF k = 25 AND level > 1 THEN level = level - 2: GOTO setNewLevel
+    IF k = ASC("B") OR k = ASC("b") THEN showBG = NOT showBG
 
-        IF camera > 0 THEN camera = 0
-        IF camera < -(_WIDTH(arena) - _WIDTH(gameScreen)) THEN camera = -(_WIDTH(arena) - _WIDTH(gameScreen))
+    doPhysics
 
-        IF cameraY > 0 THEN cameraY = 0
-        IF cameraY < -(_HEIGHT(arena) - _HEIGHT(gameScreen)) THEN cameraY = -(_HEIGHT(arena) - _HEIGHT(gameScreen))
+    FOR p = 1 TO 30
+        tx = ball.x + COS(p) * (getRND * ball.radius)
+        ty = ball.y + SIN(p) * (getRND * ball.radius)
+        addParticle tx, ty, FIRE
+    NEXT
 
+    IF ball.x - ball.radius > arenaWidth THEN madeIt = true
 
-        _DEST arena
+    doCamera
+
+    _DEST 0
+    IF showBG THEN
         _DONTBLEND
-        _PUTIMAGE (camera / 2, 0), arenaBG
+        _PUTIMAGE (camera / 2, cameraY), arenaBG
         _BLEND
-        drawBlocks
+    ELSE
+        CLS
+    END IF
+    drawBlocks
 
-        doParticles
+    IF state = SWINGING THEN
+        ThickLine ball.x + camera, ball.y + cameraY, ball.origin.x + camera, ball.origin.y + cameraY, _RGB32(0, 0, 0), 8
+        ThickLine ball.x + camera, ball.y + cameraY, ball.origin.x + camera, ball.origin.y + cameraY, _RGB32(255, 255, 255), 4
+    END IF
 
-        _DEST 0
+    doParticles
 
-        _PUTIMAGE (camera, cameraY), arena
-        '_PUTIMAGE (0, _HEIGHT - 40)-(_WIDTH - 1, _HEIGHT - 1), arena 'PIP
+    '_DEST 0
 
-        IF NOT started THEN
-            IF NOT timerSet THEN m$ = "Hold ENTER to start..." ELSE m$ = "Hold ENTER to continue..."
-            _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
-        END IF
+    '_PUTIMAGE (camera, cameraY), arena
 
-        IF timerSet THEN
+    IF state = HALTED THEN
+        IF NOT timerSet THEN m$ = "Hold ENTER to start..." ELSE m$ = "Hold ENTER to continue..."
+        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
+    END IF
+
+    IF timerSet THEN
+        m$ = STR$(TIMER - levelStarted)
+        m$ = LEFT$(m$, INSTR(m$, ".") + 1)
+        _PRINTSTRING (_WIDTH - _PRINTWIDTH(m$), _HEIGHT - _FONTHEIGHT), m$
+    END IF
+
+    IF finished THEN
+        m$ = "You made it!"
+        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
+    ELSE
+        IF started THEN
             m$ = STR$(TIMER - levelStarted)
             m$ = LEFT$(m$, INSTR(m$, ".") + 1)
             _PRINTSTRING (_WIDTH - _PRINTWIDTH(m$), _HEIGHT - _FONTHEIGHT), m$
         END IF
-
-        _PRINTSTRING (0, 0), STR$(activeParticles)
-        _PRINTSTRING (0, 20), STR$(activeSparks)
-        _PRINTSTRING (0, 40), STR$(rndIndex)
-
-        _DISPLAY
-        _LIMIT 60
-    LOOP WHILE _KEYDOWN(13) = false
-
-    started = true
-    g = .9
-    IF timerSet = false THEN
-        timerSet = true
-        levelStarted = TIMER
     END IF
 
-    ball.y.acceleration = ball.y.acceleration / 25
-    ball.y.velocity = ball.y.acceleration
-    ball.origin.x = ball.x + _WIDTH(gameScreen) / _CEIL(map(ball.y, 0, _HEIGHT, 6, 4))
-    IF ball.origin.x > _WIDTH(arena) THEN
-        finished = true
-        ball.origin.y = 0
-    ELSE
-        DO
-            ball.origin.y = _RED32(POINT(ball.origin.x, 0))
-            IF ball.origin.y > 0 THEN EXIT DO
-            ball.origin.x = ball.origin.x + 1
-        LOOP
-    END IF
-    ball.origin.y = ball.origin.y + blockOffset
-    diff.y = ball.origin.y - ball.y
-    diff.x = ball.origin.x - ball.x
-    ball.angle = _ATAN2(-1 * diff.y, diff.x) - _D2R(90)
-    ball.arm = dist(ball.x, ball.y, ball.origin.x, ball.origin.y)
+    _DISPLAY
+    _LIMIT 60
 
-    DO
-        ball.y.acceleration = (-1 * g / ball.arm) * SIN(ball.angle)
-        ball.y.velocity = ball.y.velocity + ball.y.acceleration
-        ball.y.velocity = ball.y.velocity * ball.impulse
-
-        ball.angle = ball.angle + ball.y.velocity
-
-        ball.x = ball.origin.x + (ball.arm * SIN(ball.angle))
-        ball.y = ball.origin.y + (ball.arm * COS(ball.angle))
-
-        FOR p = 1 TO 30
-            tx = ball.x + COS(p) * (getRND * ball.radius)
-            ty = ball.y + SIN(p) * (getRND * ball.radius)
-            addParticle tx, ty, FIRE
-        NEXT
-
-        IF ball.x + camera > _WIDTH / cameraCenter THEN
-            camera = (_WIDTH / cameraCenter) - ball.x
-        ELSEIF ball.x + camera < _WIDTH / cameraCenter THEN
-            camera = _WIDTH / cameraCenter - ball.x
-        END IF
-
-        IF ball.y + cameraY > _HEIGHT / cameraCenterY THEN
-            cameraY = (_HEIGHT / cameraCenterY) - ball.y
-        ELSEIF ball.y + cameraY < _HEIGHT / cameraCenterY THEN
-            cameraY = _HEIGHT / cameraCenterY - ball.y
-        END IF
-
-        IF camera > 0 THEN camera = 0
-        IF camera < -(_WIDTH(arena) - _WIDTH(gameScreen)) THEN camera = -(_WIDTH(arena) - _WIDTH(gameScreen))
-
-        IF cameraY > 0 THEN cameraY = 0
-        IF cameraY < -(_HEIGHT(arena) - _HEIGHT(gameScreen)) THEN cameraY = -(_HEIGHT(arena) - _HEIGHT(gameScreen))
-
-        _DEST arena
-        _DONTBLEND
-        _PUTIMAGE (camera / 2, 0), arenaBG
-        _BLEND
-
-        drawBlocks
-
-        ThickLine ball.x, ball.y, ball.origin.x, ball.origin.y, _RGB32(0, 0, 0), 8
-        ThickLine ball.x, ball.y, ball.origin.x, ball.origin.y, _RGB32(255, 255, 255), 4
-
-        doParticles
-
-        _DEST 0
-        _PUTIMAGE (camera, cameraY), arena
-        '_PUTIMAGE (0, _HEIGHT - 40)-(_WIDTH - 1, _HEIGHT - 1), arena 'PIP
-
-        IF showVars THEN
-            LOCATE 1, 1
-            PRINT ball.impulse
-            PRINT ball.radius
-            PRINT ball.y.velocity
-            PRINT ball.y.acceleration
-            PRINT ball.origin.x
-            PRINT ball.origin.y
-            PRINT ball.angle
-            PRINT ball.arm
-            PRINT ball.x
-            PRINT ball.y
-            PRINT camera, cameraY
-        END IF
-
-        IF finished THEN
-            m$ = "You made it!"
-            _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
-        ELSE
-            IF started THEN
-                m$ = STR$(TIMER - levelStarted)
-                m$ = LEFT$(m$, INSTR(m$, ".") + 1)
-                _PRINTSTRING (_WIDTH - _PRINTWIDTH(m$), _HEIGHT - _FONTHEIGHT), m$
-            END IF
-        END IF
-
-        _PRINTSTRING (0, 0), STR$(activeParticles)
-        _PRINTSTRING (0, 20), STR$(activeSparks)
-        _PRINTSTRING (0, 40), STR$(rndIndex)
-
-        _DISPLAY
-        _LIMIT 60
-
-        IF NOT finished THEN k = (_KEYDOWN(13) = false) ELSE k = 0
-        IF ball.x - ball.radius > _WIDTH(arena) THEN madeIt = true
-    LOOP UNTIL k OR madeIt
+    IF NOT finished THEN k = (_KEYDOWN(13) = false) ELSE k = 0
+    IF ball.x - ball.radius > arenaWidth THEN madeIt = true
 
     IF finished OR madeIt THEN
         timeFinished = TIMER
@@ -296,14 +205,18 @@ DO
 
         DO
             IF activeParticles THEN
-                _DEST arena
-                _DONTBLEND
-                _PUTIMAGE (camera / 2, 0), arenaBG
-                _BLEND
+                '_DEST arena
+                IF showBG THEN
+                    _DONTBLEND
+                    _PUTIMAGE (camera / 2, cameraY), arenaBG
+                    _BLEND
+                ELSE
+                    CLS
+                END IF
                 drawBlocks
                 doParticles
-                _DEST 0
-                _PUTIMAGE (camera, cameraY), arena
+                '_DEST 0
+                '_PUTIMAGE (camera, cameraY), arena
 
                 m$ = "You made it in" + t.m$ + " seconds!"
                 _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
@@ -323,7 +236,7 @@ DO
         camera = 0
         cameraY = 0
         ball.x = ball.radius
-        ball.y = _HEIGHT(arena) / 1.5
+        ball.y = arenaHeight / 1.5
         ball.y.acceleration = 0
         ball.y.velocity = 0
         ball.x.acceleration = 0
@@ -332,17 +245,79 @@ DO
         setRand level
         drawArena
         started = false
+        state = HALTED
         timerSet = false
         level.g = getRND * 256
         level.b = getRND * 256
-    ELSE
-        mag = ball.y.velocity * 1000
-        IF mag > 10 THEN mag = 10
-        IF mag < -10 THEN mag = -10
-        ball.x.velocity = COS(ball.angle) * mag
-        ball.y.velocity = -SIN(ball.angle) * mag
     END IF
 LOOP
+
+SUB doPhysics
+    IF state = FALLING THEN
+        g = .1
+        ball.y.acceleration = ball.y.acceleration + g / 10
+        ball.y.velocity = ball.y.velocity + ball.y.acceleration
+        ball.y = ball.y + ball.y.velocity
+
+        ball.x = ball.x + ball.x.velocity
+
+        IF ball.y - ball.radius / 2 > arenaHeight THEN
+            state = HALTED
+            ball.y = arenaHeight / respawnOffset
+            ball.y.acceleration = 0
+            ball.y.velocity = 0
+            ball.x.acceleration = 0
+            ball.x.velocity = 0
+        END IF
+    ELSEIF state = SWINGING THEN
+        ball.y.acceleration = (-1 * g / ball.arm) * SIN(ball.angle)
+        ball.y.velocity = ball.y.velocity + ball.y.acceleration
+        ball.y.velocity = ball.y.velocity * ball.impulse
+
+        ball.angle = ball.angle + ball.y.velocity
+
+        ball.x = ball.origin.x + (ball.arm * SIN(ball.angle))
+        ball.y = ball.origin.y + (ball.arm * COS(ball.angle))
+    END IF
+END SUB
+
+SUB doCamera
+    DIM new.cameraY AS SINGLE
+
+    IF ball.x + camera > _WIDTH / cameraCenter THEN
+        camera = (_WIDTH / cameraCenter) - ball.x
+    ELSEIF ball.x + camera < _WIDTH / cameraCenter THEN
+        camera = _WIDTH / cameraCenter - ball.x
+    END IF
+
+    IF ball.y + cameraY > _HEIGHT / cameraCenterY THEN
+        new.cameraY = (_HEIGHT / cameraCenterY) - ball.y
+    ELSEIF ball.y + cameraY < _HEIGHT / cameraCenterY THEN
+        new.cameraY = _HEIGHT / cameraCenterY - ball.y
+    END IF
+
+    IF state = HALTED THEN
+        DIM a AS SINGLE
+        a = ABS(cameraY - new.cameraY)
+        IF a > 3 THEN a = 3
+        IF a < 3 THEN a = 0
+        IF cameraY > new.cameraY THEN
+            cameraY = cameraY - a
+        ELSEIF cameraY < new.cameraY THEN
+            cameraY = cameraY + a
+        ELSE
+            cameraY = new.cameraY
+        END IF
+    ELSE
+        cameraY = new.cameraY
+    END IF
+
+    IF camera > 0 THEN camera = 0
+    IF camera < -(arenaWidth - _WIDTH(gameScreen)) THEN camera = -(arenaWidth - _WIDTH(gameScreen))
+
+    IF cameraY > 0 THEN cameraY = 0
+    IF cameraY < -(arenaHeight - _HEIGHT(gameScreen)) THEN cameraY = -(arenaHeight - _HEIGHT(gameScreen))
+END SUB
 
 FUNCTION dist! (x1!, y1!, x2!, y2!)
     dist! = _HYPOT((x2! - x1!), (y2! - y1!))
@@ -416,10 +391,10 @@ SUB drawArena
     CLS , _RGB32(255, 255, 255)
     FOR i = 1 TO 25
         LINE (getRND * _WIDTH, getRND * _HEIGHT)-(getRND * _WIDTH, getRND * _HEIGHT), _RGBA32(getRND * 256, getRND * 256, getRND * 256, getRND * 200), BF
-        _DONTBLEND
+        '        _DONTBLEND
         _PUTIMAGE , arenaBG, _DISPLAY
         _PUTIMAGE , loadingHUD, _DISPLAY
-        _BLEND
+        '       _BLEND
         _DISPLAY
     NEXT
 
@@ -429,7 +404,7 @@ SUB drawArena
     NEXT
 
     totalBlocks = 0
-    FOR i = 0 TO _WIDTH(arena) STEP blockSize
+    FOR i = 0 TO arenaWidth STEP blockSize
         'top block
         h = getRND * 256 '206 + 50
         y = 0
@@ -437,7 +412,7 @@ SUB drawArena
 
         'bottom block
         h = getRND * 256 '206 + 50
-        y = _HEIGHT(arena) - h
+        y = arenaHeight - h
         GOSUB addBlock
     NEXT
     _DONTBLEND
@@ -473,14 +448,13 @@ SUB drawBlocks
     loopStart = INT(ABS(camera) / (block(1).w / 2)) - 2
     IF loopStart < 1 THEN loopStart = 1
     FOR j = loopStart TO totalBlocks
-        i = block(j).x
+        i = block(j).x + camera
         IF i + camera > _WIDTH(0) THEN EXIT FOR
-        y = block(j).y
+        y = block(j).y + cameraY
         h = block(j).h
         blockSize = block(j).w
         LINE (i, y - margin)-STEP(blockSize, blockOffset + h + margin), _RGB32(0, 0, 0), BF
         LINE (i + margin, y)-STEP(blockSize - (margin * 2), blockOffset + h - margin), _RGB32(h, level.g, level.b), BF
-        IF showVars THEN _PRINTSTRING (i, y), STR$(j)
     NEXT
 END SUB
 
@@ -598,10 +572,10 @@ SUB doParticles
                     s = dist(particle(i).x, particle(i).y, ball.x, ball.y)
                     s = map(s, 0, ball.radius * 4, 9, 2)
                     IF s < 2 THEN s = 2
-                    CircleFill particle(i).x, particle(i).y, s, particle(i).color
+                    CircleFill particle(i).x + camera, particle(i).y + cameraY, s, particle(i).color
                 CASE SPARK
                     'PSET (particle(i).x, particle(i).y), particle(i).color
-                    CircleFill particle(i).x, particle(i).y, 1, particle(i).color
+                    CircleFill particle(i).x + camera, particle(i).y + cameraY, 1, particle(i).color
             END SELECT
         END IF
     NEXT
@@ -622,6 +596,3 @@ FUNCTION getRND
     getRND = rndTable(rndIndex)
 END FUNCTION
 
-SUB doPhysics
-
-END SUB
