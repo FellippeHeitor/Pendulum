@@ -1,7 +1,23 @@
+OPTION _EXPLICIT
+
 CONST true = -1, false = 0
 CONST showVars = false
 
 _TITLE "I came in like a wreeeeeecking ball..."
+
+DIM SHARED gameWidth AS INTEGER, gameHeight AS INTEGER
+DIM SHARED gameScreen AS LONG, arena AS LONG, arenaBG AS LONG
+DIM SHARED level AS LONG, camera AS SINGLE
+DIM SHARED blockOffset AS INTEGER, respawnOffset AS SINGLE
+DIM SHARED ball.impulse, ball.radius, ball.y.velocity
+DIM SHARED ball.y.acceleration, ball.x.velocity, ball.x.acceleration
+DIM SHARED ball.origin.x, ball.origin.y, ball.x, ball.y
+DIM SHARED level.g, level.b, g, k AS LONG
+DIM SHARED started AS _BYTE, p AS INTEGER, tx, ty, madeIt AS _BYTE
+DIM SHARED cameraCenter AS SINGLE, cameraCenterY AS SINGLE, cameraY AS SINGLE
+DIM SHARED timerSet AS _BYTE, m$, levelStarted AS SINGLE, finished AS _BYTE
+DIM SHARED diff.y, diff.x, ball.angle, ball.arm, timeFinished AS SINGLE
+DIM SHARED t.m$, mag
 
 gameWidth = 900
 gameHeight = 650
@@ -9,9 +25,9 @@ gameHeight = 650
 gameScreen = _NEWIMAGE(gameWidth, gameHeight, 32)
 SCREEN gameScreen
 COLOR , _RGBA32(0, 0, 0, 0)
-arena = _NEWIMAGE(gameWidth * 10, gameHeight * 1.5, 32)
+arena = _NEWIMAGE(gameWidth * 15, gameHeight * 1.5, 32)
 _SOURCE arena
-arenaBG = _NEWIMAGE(gameWidth * 20, gameHeight * 1.5, 32)
+arenaBG = _NEWIMAGE(gameWidth * 30, gameHeight * 1.5, 32)
 
 CONST FIRE = 1
 CONST SMOKE = 2
@@ -35,32 +51,42 @@ END TYPE
 REDIM SHARED block(200) AS newItem
 REDIM SHARED particle(200) AS newItem
 DIM SHARED totalBlocks AS LONG, totalParticles AS LONG
-DIM SHARED activeParticles AS LONG
+DIM SHARED activeParticles AS LONG, activeSparks AS LONG
+
+CONST maxRND = 1000000
+DIM SHARED rndTable(1 TO maxRND) AS SINGLE
+DIM SHARED rndSeed AS LONG, rndIndex AS LONG
+RANDOMIZE 17
+DIM i&
+FOR i& = 1 TO maxRND
+    rndTable(i&) = RND
+NEXT
 
 level = 1
-RANDOMIZE level
+setRand level
 drawArena
 
 _DEST arena
 camera = 0
 blockOffset = 200
-respawnOffset = 1.5
+respawnOffset = 1.9
 ball.impulse = 1.003 '.damping = .995
 ball.radius = 20
 ball.y.velocity = 0
 ball.y.acceleration = 0
 ball.x.velocity = 0
 ball.x.acceleration = 0
-ball.origin.X = _WIDTH(gameScreen) / 2
-ball.origin.Y = 0
+ball.origin.x = _WIDTH(gameScreen) / 2
+ball.origin.y = 0
 ball.x = ball.radius * 1.5
 ball.y = _HEIGHT(arena) / respawnOffset
 
-level.g = 100
-level.b = 255
+level.g = getRND * 256
+level.b = getRND * 256
 
 DO
-    g = .3
+    doPhysics
+    g = .1
     DO
         k = _KEYHIT
         IF k = 9 THEN GOTO setNewLevel
@@ -89,8 +115,8 @@ DO
         END IF
 
         FOR p = 1 TO 30
-            tx = ball.x + COS(p) * (RND * ball.radius)
-            ty = ball.y + SIN(p) * (RND * ball.radius)
+            tx = ball.x + COS(p) * (getRND * ball.radius)
+            ty = ball.y + SIN(p) * (getRND * ball.radius)
             addParticle tx, ty, FIRE
         NEXT
 
@@ -142,37 +168,39 @@ DO
             _PRINTSTRING (_WIDTH - _PRINTWIDTH(m$), _HEIGHT - _FONTHEIGHT), m$
         END IF
 
-        _PRINTSTRING (0, 0), STR$(totalParticles)
+        _PRINTSTRING (0, 0), STR$(activeParticles)
+        _PRINTSTRING (0, 20), STR$(activeSparks)
+        _PRINTSTRING (0, 40), STR$(rndIndex)
 
         _DISPLAY
         _LIMIT 60
     LOOP WHILE _KEYDOWN(13) = false
 
     started = true
-    g = .95
+    g = .9
     IF timerSet = false THEN
         timerSet = true
         levelStarted = TIMER
     END IF
 
-    ball.y.acceleration = ball.y.acceleration / 50
+    ball.y.acceleration = ball.y.acceleration / 25
     ball.y.velocity = ball.y.acceleration
-    ball.origin.X = ball.x + _WIDTH(gameScreen) / _CEIL(map(ball.y, 0, _HEIGHT, 6, 4))
-    IF ball.origin.X > _WIDTH(arena) THEN
+    ball.origin.x = ball.x + _WIDTH(gameScreen) / _CEIL(map(ball.y, 0, _HEIGHT, 6, 4))
+    IF ball.origin.x > _WIDTH(arena) THEN
         finished = true
-        ball.origin.Y = 0
+        ball.origin.y = 0
     ELSE
         DO
-            ball.origin.Y = _RED32(POINT(ball.origin.X, 0))
-            IF ball.origin.Y > 0 THEN EXIT DO
-            ball.origin.X = ball.origin.X + 1
+            ball.origin.y = _RED32(POINT(ball.origin.x, 0))
+            IF ball.origin.y > 0 THEN EXIT DO
+            ball.origin.x = ball.origin.x + 1
         LOOP
     END IF
-    ball.origin.Y = ball.origin.Y + blockOffset
-    diff.y = ball.origin.Y - ball.y
-    diff.x = ball.origin.X - ball.x
+    ball.origin.y = ball.origin.y + blockOffset
+    diff.y = ball.origin.y - ball.y
+    diff.x = ball.origin.x - ball.x
     ball.angle = _ATAN2(-1 * diff.y, diff.x) - _D2R(90)
-    ball.arm = dist(ball.x, ball.y, ball.origin.X, ball.origin.Y)
+    ball.arm = dist(ball.x, ball.y, ball.origin.x, ball.origin.y)
 
     DO
         ball.y.acceleration = (-1 * g / ball.arm) * SIN(ball.angle)
@@ -181,12 +209,12 @@ DO
 
         ball.angle = ball.angle + ball.y.velocity
 
-        ball.x = ball.origin.X + (ball.arm * SIN(ball.angle))
-        ball.y = ball.origin.Y + (ball.arm * COS(ball.angle))
+        ball.x = ball.origin.x + (ball.arm * SIN(ball.angle))
+        ball.y = ball.origin.y + (ball.arm * COS(ball.angle))
 
         FOR p = 1 TO 30
-            tx = ball.x + COS(p) * (RND * ball.radius)
-            ty = ball.y + SIN(p) * (RND * ball.radius)
+            tx = ball.x + COS(p) * (getRND * ball.radius)
+            ty = ball.y + SIN(p) * (getRND * ball.radius)
             addParticle tx, ty, FIRE
         NEXT
 
@@ -215,8 +243,8 @@ DO
 
         drawBlocks
 
-        ThickLine ball.x, ball.y, ball.origin.X, ball.origin.Y, _RGB32(0, 0, 0), 8
-        ThickLine ball.x, ball.y, ball.origin.X, ball.origin.Y, _RGB32(255, 255, 255), 4
+        ThickLine ball.x, ball.y, ball.origin.x, ball.origin.y, _RGB32(0, 0, 0), 8
+        ThickLine ball.x, ball.y, ball.origin.x, ball.origin.y, _RGB32(255, 255, 255), 4
 
         doParticles
 
@@ -230,8 +258,8 @@ DO
             PRINT ball.radius
             PRINT ball.y.velocity
             PRINT ball.y.acceleration
-            PRINT ball.origin.X
-            PRINT ball.origin.Y
+            PRINT ball.origin.x
+            PRINT ball.origin.y
             PRINT ball.angle
             PRINT ball.arm
             PRINT ball.x
@@ -250,7 +278,9 @@ DO
             END IF
         END IF
 
-        _PRINTSTRING (0, 0), STR$(totalParticles)
+        _PRINTSTRING (0, 0), STR$(activeParticles)
+        _PRINTSTRING (0, 20), STR$(activeSparks)
+        _PRINTSTRING (0, 40), STR$(rndIndex)
 
         _DISPLAY
         _LIMIT 60
@@ -283,8 +313,6 @@ DO
 
             k = _KEYHIT
 
-            _PRINTSTRING (0, 0), STR$(totalParticles)
-
             _DISPLAY
             _LIMIT 60
         LOOP UNTIL k = 32
@@ -301,12 +329,12 @@ DO
         ball.x.acceleration = 0
         ball.x.velocity = 0
         level = level + 1
-        RANDOMIZE level
+        setRand level
         drawArena
         started = false
         timerSet = false
-        level.g = RND * 256
-        level.b = RND * 256
+        level.g = getRND * 256
+        level.b = getRND * 256
     ELSE
         mag = ball.y.velocity * 1000
         IF mag > 10 THEN mag = 10
@@ -369,7 +397,8 @@ END SUB
 
 
 SUB drawArena
-    SHARED arena, arenaBG, level
+    DIM i AS LONG, blockSize AS INTEGER
+    DIM h AS SINGLE, y AS SINGLE
     STATIC loadingHUD
 
     IF loadingHUD = 0 THEN
@@ -386,7 +415,7 @@ SUB drawArena
     _BLEND
     CLS , _RGB32(255, 255, 255)
     FOR i = 1 TO 25
-        LINE (RND * _WIDTH, RND * _HEIGHT)-(RND * _WIDTH, RND * _HEIGHT), _RGBA32(RND * 256, RND * 256, RND * 256, RND * 200), BF
+        LINE (getRND * _WIDTH, getRND * _HEIGHT)-(getRND * _WIDTH, getRND * _HEIGHT), _RGBA32(getRND * 256, getRND * 256, getRND * 256, getRND * 200), BF
         _DONTBLEND
         _PUTIMAGE , arenaBG, _DISPLAY
         _PUTIMAGE , loadingHUD, _DISPLAY
@@ -395,17 +424,19 @@ SUB drawArena
     NEXT
 
     blockSize = 100
-    margin = 3
+    FOR i = 0 TO _WIDTH STEP blockSize
+        LINE (i, 0)-STEP(blockSize - 1, _HEIGHT), _RGBA32(0, 0, 0, map(i, 0, _WIDTH, 160, 50)), BF
+    NEXT
+
     totalBlocks = 0
     FOR i = 0 TO _WIDTH(arena) STEP blockSize
-        LINE (i, 0)-STEP(blockSize - 1, _HEIGHT), _RGBA32(0, 0, 0, map(i, 0, _WIDTH, 160, 50)), BF
         'top block
-        h = RND * 256 '206 + 50
+        h = getRND * 256 '206 + 50
         y = 0
         GOSUB addBlock
 
         'bottom block
-        h = RND * 256 '206 + 50
+        h = getRND * 256 '206 + 50
         y = _HEIGHT(arena) - h
         GOSUB addBlock
     NEXT
@@ -424,6 +455,7 @@ SUB drawArena
 END SUB
 
 SUB ThickLine (x, y, x1, y1, c AS _UNSIGNED LONG, t)
+    DIM i AS SINGLE, xx AS SINGLE, yy AS SINGLE
     'This sub from http://www.qb64.net/forum/index.php?topic=1456.msg11548#msg11548
     FOR i = 0 TO 1 STEP .01
         xx = INT((x1 - x) * i) + x
@@ -433,9 +465,9 @@ SUB ThickLine (x, y, x1, y1, c AS _UNSIGNED LONG, t)
 END SUB
 
 SUB drawBlocks
-    SHARED camera, level
-    SHARED level.g, level.b
-    SHARED blockOffset
+    DIM margin, loopStart AS LONG, j AS LONG
+    DIM i AS SINGLE, y AS SINGLE, h AS SINGLE
+    DIM blockSize AS SINGLE
 
     margin = 3
     loopStart = INT(ABS(camera) / (block(1).w / 2)) - 2
@@ -445,15 +477,18 @@ SUB drawBlocks
         IF i + camera > _WIDTH(0) THEN EXIT FOR
         y = block(j).y
         h = block(j).h
-        blocksize = block(j).w
-        LINE (i, y - margin)-STEP(blocksize, blockOffset + h + margin), _RGB32(0, 0, 0), BF
-        LINE (i + margin, y)-STEP(blocksize - (margin * 2), blockOffset + h - margin), _RGB32(h, level.g, level.b), BF
+        blockSize = block(j).w
+        LINE (i, y - margin)-STEP(blockSize, blockOffset + h + margin), _RGB32(0, 0, 0), BF
+        LINE (i + margin, y)-STEP(blockSize - (margin * 2), blockOffset + h - margin), _RGB32(h, level.g, level.b), BF
         IF showVars THEN _PRINTSTRING (i, y), STR$(j)
     NEXT
 END SUB
 
 SUB addParticle (x AS SINGLE, y AS SINGLE, kind AS INTEGER)
     DIM i AS LONG
+    DIM newParticle AS LONG
+    DIM a AS SINGLE
+    DIM s AS SINGLE
 
     IF totalParticles > 5000 THEN EXIT SUB
 
@@ -479,33 +514,36 @@ SUB addParticle (x AS SINGLE, y AS SINGLE, kind AS INTEGER)
     particle(newParticle).generation = 0
     particle(newParticle).active = true
 
-    a = _D2R(RND * 360)
+    a = getRND * _PI(2)
 
     SELECT CASE kind
         CASE FIRE
             particle(newParticle).yVel = SIN(a) * 2
             particle(newParticle).xVel = COS(a) * 2
         CASE SPARK
-            r = (RND * 6)
-            particle(newParticle).yVel = SIN(a) * r
-            particle(newParticle).xVel = COS(a) * r
+            particle(newParticle).yVel = SIN(a) * 3
+            particle(newParticle).xVel = COS(a) * 3
     END SELECT
 END SUB
 
 SUB doParticles
-    SHARED ball.x, ball.y, ball.radius
-    SHARED started
+    SHARED camera
     DIM i AS LONG
+    DIM gravity AS SINGLE
+    DIM g AS _UNSIGNED _BYTE, b AS _UNSIGNED _BYTE, a AS _UNSIGNED _BYTE
+    DIM maxSmoke AS INTEGER, maxSpark AS INTEGER
+    DIM s AS SINGLE
 
     activeParticles = 0
-    gravity = .09
+    activeSparks = 0
+    gravity = .02
     FOR i = 1 TO UBOUND(particle)
         IF particle(i).active THEN
             activeParticles = activeParticles + 1
 
             particle(i).generation = particle(i).generation + 1
 
-            IF particle(i).kind = SPARK THEN particle(i).yAcc = particle(i).yAcc + gravity
+            IF particle(i).kind = SPARK THEN activeSparks = activeSparks + 1: particle(i).yAcc = particle(i).yAcc + gravity
             particle(i).yVel = particle(i).yVel + particle(i).yAcc
             particle(i).y = particle(i).y + particle(i).yVel
 
@@ -523,9 +561,15 @@ SUB doParticles
                         particle(i).xAcc = -.2
                     ELSE
                         SELECT EVERYCASE particle(i).generation
-                            CASE 1, 2: g = 238: b = 177: a = 255
-                            CASE 3: IF (started AND RND < .5) OR (started = 0 AND RND < .2) THEN addParticle particle(i).x, particle(i).y, SPARK
-                            CASE 3, 4: g = 222: b = 89: a = 200
+                            CASE 1, 2: g = 238: b = 177: a = 200
+                            CASE 3
+                                s = getRND
+                                IF (started AND s < .08) THEN
+                                    addParticle particle(i).x, particle(i).y, SPARK
+                                ELSEIF NOT started THEN
+                                    IF s < .01 THEN addParticle particle(i).x, particle(i).y, SPARK
+                                END IF
+                            CASE 3, 4: g = 222: b = 89: a = 180
                             CASE 5, 6: g = 128: b = 50: a = 150
                             CASE 7, 8: g = 33: b = 0: a = 70
                         END SELECT
@@ -563,3 +607,21 @@ SUB doParticles
     NEXT
 END SUB
 
+
+SUB setRand (seed&)
+    IF seed& > UBOUND(rndtable) OR seed& < 1 THEN
+        rndIndex = 1
+    ELSE
+        rndIndex = seed&
+    END IF
+END SUB
+
+FUNCTION getRND
+    rndIndex = rndIndex + 1
+    IF rndIndex > UBOUND(rndtable) THEN rndIndex = 1
+    getRND = rndTable(rndIndex)
+END FUNCTION
+
+SUB doPhysics
+
+END SUB
