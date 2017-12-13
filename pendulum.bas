@@ -16,7 +16,8 @@ DIM SHARED started AS _BYTE, p AS INTEGER, tx, ty, madeIt AS _BYTE
 DIM SHARED cameraCenter AS SINGLE, cameraCenterY AS SINGLE, cameraY AS SINGLE
 DIM SHARED timerSet AS _BYTE, m$, levelStarted AS SINGLE, finished AS _BYTE
 DIM SHARED diff.y, diff.x, ball.angle, ball.arm, timeFinished AS SINGLE
-DIM SHARED t.m$, mag, showBG AS _BYTE
+DIM SHARED t.m$, mag, showBG AS _BYTE, blockLoopStart AS LONG
+DIM SHARED ballHit AS _BYTE
 
 gameWidth = 900
 gameHeight = 650
@@ -28,13 +29,14 @@ SCREEN gameScreen
 COLOR , _RGBA32(0, 0, 0, 0)
 arenaWidth = gameWidth * 15
 arenaHeight = gameHeight * 1.5
-'arena = _NEWIMAGE(gameWidth * 15, gameHeight * 1.5, 32)
 arenaBG = _NEWIMAGE(gameWidth * 30, gameHeight * 1.5, 32)
 showBG = true
 
 CONST FIRE = 1
 CONST SMOKE = 2
 CONST SPARK = 3
+CONST SOOTSTAIN = 4
+CONST GRAVITATOR = 5
 
 TYPE newItem
     x AS SINGLE
@@ -45,16 +47,21 @@ TYPE newItem
     yVel AS SINGLE
     xAcc AS SINGLE
     xVel AS SINGLE
+    minA AS SINGLE
+    maxA AS SINGLE
+    minb AS SINGLE
+    maxB AS SINGLE
     kind AS INTEGER
     color AS _UNSIGNED LONG
     active AS _BYTE
     generation AS INTEGER
+    maxGeneration AS INTEGER
 END TYPE
 
 REDIM SHARED block(200) AS newItem
-REDIM SHARED particle(200) AS newItem
+REDIM SHARED particle(0) AS newItem
 DIM SHARED totalBlocks AS LONG, totalParticles AS LONG
-DIM SHARED activeParticles AS LONG, activeSparks AS LONG
+DIM SHARED activeParticles AS LONG, activeSparks AS LONG, activeGravitators AS LONG
 
 CONST maxRND = 1000000
 DIM SHARED rndTable(1 TO maxRND) AS SINGLE
@@ -68,6 +75,8 @@ NEXT
 level = 1
 setRand level
 drawArena
+
+addParticle 300, _HEIGHT(arena) / 2, GRAVITATOR
 
 camera = 0
 blockOffset = 200
@@ -166,10 +175,6 @@ DO
 
     doParticles
 
-    '_DEST 0
-
-    '_PUTIMAGE (camera, cameraY), arena
-
     IF state = HALTED THEN
         IF NOT timerSet THEN m$ = "Hold ENTER to start..." ELSE m$ = "Hold ENTER to continue..."
         _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
@@ -192,6 +197,10 @@ DO
         END IF
     END IF
 
+    _PRINTSTRING (0, 0), STR$(activeParticles)
+    _PRINTSTRING (0, 20), STR$(activeSparks)
+    _PRINTSTRING (0, 40), STR$(activeGravitators)
+
     _DISPLAY
     _LIMIT 60
 
@@ -205,7 +214,6 @@ DO
 
         DO
             IF activeParticles THEN
-                '_DEST arena
                 IF showBG THEN
                     _DONTBLEND
                     _PUTIMAGE (camera / 2, cameraY), arenaBG
@@ -215,8 +223,6 @@ DO
                 END IF
                 drawBlocks
                 doParticles
-                '_DEST 0
-                '_PUTIMAGE (camera, cameraY), arena
 
                 m$ = "You made it in" + t.m$ + " seconds!"
                 _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
@@ -260,15 +266,6 @@ SUB doPhysics
         ball.y = ball.y + ball.y.velocity
 
         ball.x = ball.x + ball.x.velocity
-
-        IF ball.y - ball.radius / 2 > arenaHeight THEN
-            state = HALTED
-            ball.y = arenaHeight / respawnOffset
-            ball.y.acceleration = 0
-            ball.y.velocity = 0
-            ball.x.acceleration = 0
-            ball.x.velocity = 0
-        END IF
     ELSEIF state = SWINGING THEN
         ball.y.acceleration = (-1 * g / ball.arm) * SIN(ball.angle)
         ball.y.velocity = ball.y.velocity + ball.y.acceleration
@@ -279,7 +276,30 @@ SUB doPhysics
         ball.x = ball.origin.x + (ball.arm * SIN(ball.angle))
         ball.y = ball.origin.y + (ball.arm * COS(ball.angle))
     END IF
+
+    IF ball.y - ball.radius / 2 > arenaHeight OR ballHit THEN
+        state = HALTED
+        ball.y = arenaHeight / respawnOffset
+        ball.y.acceleration = 0
+        ball.y.velocity = 0
+        ball.x.acceleration = 0
+        ball.x.velocity = 0
+    END IF
 END SUB
+
+FUNCTION checkCollision%% (x1!, y1!, r!, x!, y!, w!, h!)
+    '//solution from https://jsfiddle.net/TappT/z5r21nu0/16/
+    'function collisionNormal(_ball, _rect) {
+    '  if(_ball.pos.x + _ball.r > _rect.pos.x &&
+    '     _ball.pos.x - _ball.r < (_rect.pos.x + _rect.w) &&
+    '     _ball.pos.y + _ball.r > _rect.pos.y &&
+    '     _ball.pos.y - _ball.r < (_rect.pos.y + _rect.h))
+    '  {
+    checkCollision%% = (x1! + camera) + r! > x! AND _
+                       (x1! + camera) - r! < (x! + w!) AND _
+                       (y1! + cameraY) + r! > y! AND _
+                       (y1! + cameraY) - r! < (y! + h!)
+END FUNCTION
 
 SUB doCamera
     DIM new.cameraY AS SINGLE
@@ -416,6 +436,7 @@ SUB drawArena
         GOSUB addBlock
     NEXT
     _DONTBLEND
+
     EXIT SUB
 
     addBlock:
@@ -440,21 +461,25 @@ SUB ThickLine (x, y, x1, y1, c AS _UNSIGNED LONG, t)
 END SUB
 
 SUB drawBlocks
-    DIM margin, loopStart AS LONG, j AS LONG
+    DIM margin, j AS LONG
     DIM i AS SINGLE, y AS SINGLE, h AS SINGLE
     DIM blockSize AS SINGLE
 
     margin = 3
-    loopStart = INT(ABS(camera) / (block(1).w / 2)) - 2
-    IF loopStart < 1 THEN loopStart = 1
-    FOR j = loopStart TO totalBlocks
+    ballHit = false
+    blockLoopStart = INT(ABS(camera) / (block(1).w / 2)) - 2
+    IF blockLoopStart < 1 THEN blockLoopStart = 1
+    FOR j = blockLoopStart TO totalBlocks
         i = block(j).x + camera
-        IF i + camera > _WIDTH(0) THEN EXIT FOR
+        IF i > _WIDTH(0) THEN EXIT FOR
         y = block(j).y + cameraY
         h = block(j).h
         blockSize = block(j).w
         LINE (i, y - margin)-STEP(blockSize, blockOffset + h + margin), _RGB32(0, 0, 0), BF
         LINE (i + margin, y)-STEP(blockSize - (margin * 2), blockOffset + h - margin), _RGB32(h, level.g, level.b), BF
+        IF ballHit = false THEN
+            ballHit = checkCollision(ball.x, ball.y, ball.radius, i, y - margin, blockSize, blockOffset + h + margin)
+        END IF
     NEXT
 END SUB
 
@@ -464,7 +489,7 @@ SUB addParticle (x AS SINGLE, y AS SINGLE, kind AS INTEGER)
     DIM a AS SINGLE
     DIM s AS SINGLE
 
-    IF totalParticles > 5000 THEN EXIT SUB
+    IF activeParticles > 5000 THEN EXIT SUB
 
     FOR i = 1 TO UBOUND(particle)
         IF NOT particle(i).active THEN newParticle = i: EXIT FOR
@@ -497,6 +522,13 @@ SUB addParticle (x AS SINGLE, y AS SINGLE, kind AS INTEGER)
         CASE SPARK
             particle(newParticle).yVel = SIN(a) * 3
             particle(newParticle).xVel = COS(a) * 3
+            particle(newParticle).maxGeneration = 25
+        CASE SOOTSTAIN
+            particle(newParticle).maxGeneration = 200
+        CASE SMOKE
+            particle(newParticle).maxGeneration = 15
+        CASE GRAVITATOR
+            particle(newParticle).color = _RGB32(233, 200, 105)
     END SELECT
 END SUB
 
@@ -505,11 +537,11 @@ SUB doParticles
     DIM i AS LONG
     DIM gravity AS SINGLE
     DIM g AS _UNSIGNED _BYTE, b AS _UNSIGNED _BYTE, a AS _UNSIGNED _BYTE
-    DIM maxSmoke AS INTEGER, maxSpark AS INTEGER
     DIM s AS SINGLE
 
     activeParticles = 0
     activeSparks = 0
+    activeGravitators = 0
     gravity = .02
     FOR i = 1 TO UBOUND(particle)
         IF particle(i).active THEN
@@ -517,6 +549,7 @@ SUB doParticles
 
             particle(i).generation = particle(i).generation + 1
 
+            IF particle(i).kind = GRAVITATOR THEN activeGravitators = activeGravitators + 1
             IF particle(i).kind = SPARK THEN activeSparks = activeSparks + 1: particle(i).yAcc = particle(i).yAcc + gravity
             particle(i).yVel = particle(i).yVel + particle(i).yAcc
             particle(i).y = particle(i).y + particle(i).yVel
@@ -550,11 +583,12 @@ SUB doParticles
                         particle(i).color = _RGBA32(255, g, b, a)
                     END IF
                 CASE SMOKE
-                    maxSmoke = 15
-                    particle(i).color = _RGBA32(33, 17, 39, map(particle(i).generation, 1, maxSmoke, 100, 0))
-                    IF particle(i).generation > maxSmoke THEN particle(i).active = false
+                    particle(i).color = _RGBA32(33, 17, 39, map(particle(i).generation, 1, particle(i).maxGeneration, 100, 0))
+                    IF particle(i).generation > particle(i).maxGeneration THEN particle(i).active = false
+                    'CASE SOOTSTAIN
+                    '    particle(i).color = _RGBA32(33, 17, 39, map(particle(i).generation, 1, particle(i).maxGeneration, 40, 0))
+                    '    IF particle(i).generation > particle(i).maxGeneration THEN particle(i).active = false
                 CASE SPARK
-                    maxSpark = 25
                     SELECT CASE particle(i).generation
                         CASE 1, 2: g = 238: b = 177
                         CASE 3, 4: g = 222: b = 89
@@ -563,9 +597,8 @@ SUB doParticles
                     END SELECT
                     a = map(particle(i).generation, 1, 15, 255, 0)
                     particle(i).color = _RGBA32(255, g, b, a)
-                    IF particle(i).generation > maxSpark THEN particle(i).active = false
+                    IF particle(i).generation > particle(i).maxGeneration THEN particle(i).active = false
                     'end of processing -----------------------------------------------------------
-
 
                     'show ------------------------------------------------------------------------
                 CASE FIRE, SMOKE
@@ -573,9 +606,31 @@ SUB doParticles
                     s = map(s, 0, ball.radius * 4, 9, 2)
                     IF s < 2 THEN s = 2
                     CircleFill particle(i).x + camera, particle(i).y + cameraY, s, particle(i).color
+
+                    'CASE SMOKE
+                    '    IF state = HALTED THEN
+                    '        DIM l AS LONG, j AS LONG, y AS SINGLE, h AS SINGLE, blockSize AS SINGLE, margin AS SINGLE
+                    '        margin = 3
+                    '        FOR j = blockLoopStart TO totalBlocks
+                    '            l = block(j).x + camera
+                    '            IF l > _WIDTH(0) THEN EXIT FOR
+                    '            y = block(j).y + cameraY
+                    '            h = block(j).h
+                    '            blockSize = block(j).w
+                    '            IF checkCollision(particle(i).x, particle(i).y, s, l, y - margin, blockSize, blockOffset + h + margin) THEN
+                    '                addParticle particle(i).x, particle(i).y, SOOTSTAIN
+                    '                EXIT FOR
+                    '            END IF
+                    '        NEXT
+                    '    END IF
                 CASE SPARK
                     'PSET (particle(i).x, particle(i).y), particle(i).color
                     CircleFill particle(i).x + camera, particle(i).y + cameraY, 1, particle(i).color
+                    'CASE SOOTSTAIN
+                    '    CircleFill particle(i).x + camera, particle(i).y + cameraY, 2, particle(i).color
+                CASE GRAVITATOR
+                    CircleFill particle(i).x + camera, particle(i).y + cameraY, 10, particle(i).color
+                    _PRINTSTRING (particle(i).x + camera, particle(i).y + cameraY), "GRAVITATOR"
             END SELECT
         END IF
     NEXT
@@ -595,4 +650,3 @@ FUNCTION getRND
     IF rndIndex > UBOUND(rndtable) THEN rndIndex = 1
     getRND = rndTable(rndIndex)
 END FUNCTION
-
