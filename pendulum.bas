@@ -1,3 +1,4 @@
+'Fireball whoosh sound: https://freesound.org/s/248116/
 OPTION _EXPLICIT
 CONST true = -1, false = 0
 
@@ -5,13 +6,14 @@ _TITLE "I came in like a wreeeeeecking ball..."
 
 DIM SHARED gameWidth AS INTEGER, gameHeight AS INTEGER
 DIM SHARED arenaWidth AS INTEGER, arenaHeight AS INTEGER
-DIM SHARED gameScreen AS LONG, arena AS LONG, arenaBG AS LONG
+DIM SHARED bgWidth AS INTEGER, bgHeight AS INTEGER
+DIM SHARED gameScreen AS LONG ', arenaBG AS LONG
 DIM SHARED level AS LONG, camera AS SINGLE
 DIM SHARED blockOffset AS INTEGER, respawnOffset AS SINGLE
 DIM SHARED ball.impulse, ball.radius, ball.y.velocity
 DIM SHARED ball.y.acceleration, ball.x.velocity, ball.x.acceleration
 DIM SHARED ball.origin.x, ball.origin.y, ball.x, ball.y
-DIM SHARED level.g, level.b, g AS SINGLE, k AS LONG
+DIM SHARED level.g, level.r, g AS SINGLE, k AS LONG
 DIM SHARED started AS _BYTE, p AS LONG, tx, ty, madeIt AS _BYTE
 DIM SHARED cameraCenter AS SINGLE, cameraCenterY AS SINGLE, cameraY AS SINGLE
 DIM SHARED timerSet AS _BYTE, m$, levelStarted AS SINGLE, finished AS _BYTE
@@ -22,6 +24,10 @@ DIM SHARED ellipsisPlot AS INTEGER, waitForRelease AS _BYTE, willRespawn AS _BYT
 DIM SHARED gravitationalFloat AS _BYTE, g.i AS _BYTE
 DIM SHARED bigPortal AS LONG, smallPortal AS LONG
 DIM SHARED frameRate AS INTEGER, frameRateRestoreTimer AS SINGLE
+DIM SHARED respawnDelay AS SINGLE, hideRed AS SINGLE
+DIM SHARED largeFont AS LONG, smallFont AS LONG
+DIM SHARED prev.m$
+DIM SHARED whooshSound AS LONG
 
 CONST maxGravitationalFloat = 10
 CONST maxGlowRadius = 25
@@ -31,14 +37,23 @@ gameHeight = 650
 cameraCenter = 3
 cameraCenterY = 2
 frameRate = 60
+respawnDelay = 2
 
 gameScreen = _NEWIMAGE(gameWidth, gameHeight, 32)
 SCREEN gameScreen
 COLOR , _RGBA32(0, 0, 0, 0)
 arenaWidth = gameWidth * 15
 arenaHeight = gameHeight * 1.5
-arenaBG = _NEWIMAGE(gameWidth * 30, gameHeight * 1.5, 32)
+bgWidth = gameWidth * 30
+bgHeight = gameHeight * 1.5
 showBG = true
+
+'largeFont = _LOADFONT("cour.ttf", 40, "monospace")
+IF largeFont = 0 THEN largeFont = 16
+'smallFont = _LOADFONT("cour.ttf", 20, "monospace")
+IF smallFont = 0 THEN smallFont = 16
+
+whooshSound = _SNDOPEN("assets/whoosh.wav")
 
 CONST FIRE = 1
 CONST SMOKE = 2
@@ -76,19 +91,37 @@ TYPE newItem
     maxGeneration AS INTEGER
 END TYPE
 
+CONST maxBGDecoration = 50
+REDIM SHARED bg(1 TO maxBGDecoration) AS newItem
 REDIM SHARED block(200) AS newItem
 REDIM SHARED particle(0) AS newItem
+REDIM SHARED deathNote(1 TO 1) AS STRING, deathNoteIndex AS INTEGER
 DIM SHARED totalBlocks AS LONG
 DIM thisParticle AS LONG
 
 CONST maxRND = 1000000
 DIM SHARED rndTable(1 TO maxRND) AS SINGLE
 DIM SHARED rndSeed AS LONG, rndIndex AS LONG
-RANDOMIZE 7
+
+RANDOMIZE 3
 DIM i&
 FOR i& = 1 TO maxRND
     rndTable(i&) = RND
 NEXT
+
+i& = 0
+RESTORE deathNotes
+DO
+    READ m$
+    IF m$ = "-" THEN EXIT DO
+    i& = i& + 1
+    IF i& > UBOUND(deathNote) THEN REDIM _PRESERVE deathNote(1 TO i&) AS STRING
+    deathNote(i&) = m$
+LOOP
+IF i& = 0 THEN deathNote(1) = "OUCH!"
+
+deathNotes:
+DATA "OUCH!","THAT MUST HURT...","WASTED","CAN'T TOUCH THIS!","BLOCKS ARE LAVA.","-"
 
 camera = 0
 ellipsisPlot = 63
@@ -104,6 +137,7 @@ ball.origin.x = _WIDTH(gameScreen) / 2
 ball.origin.y = 0
 ball.x = ball.radius * 1.5
 ball.y = arenaHeight / respawnOffset
+deathNoteIndex = _CEIL(getRND * UBOUND(deathNote))
 
 DIM SHARED state AS _BYTE
 CONST HALTED = 0
@@ -112,15 +146,16 @@ CONST SWINGING = 2
 
 level = 1
 setRand level
-drawArena
+generateArena
 
 level.g = getRND * 256
-level.b = getRND * 256
+level.r = getRND * 256
 
 DO
     IF _KEYDOWN(13) THEN
         IF NOT waitForRelease AND NOT willRespawn THEN
             IF state <> SWINGING THEN
+                IF whooshSound > 0 THEN _SNDPLAYCOPY whooshSound
                 state = SWINGING
                 started = true
                 IF timerSet = false THEN
@@ -135,11 +170,11 @@ DO
                     finished = true
                     ball.origin.y = 0
                 ELSE
-                    DO
-                        ball.origin.y = _RED32(POINT(ball.origin.x + camera, 0))
-                        IF ball.origin.y > 0 THEN EXIT DO
-                        ball.origin.x = ball.origin.x + 1
-                    LOOP
+                    'DO
+                    ball.origin.y = _BLUE32(POINT(ball.origin.x + camera, 0))
+                    '    IF ball.origin.y > 0 THEN EXIT DO
+                    '    ball.origin.x = ball.origin.x + 1
+                    'LOOP
                 END IF
                 ball.origin.y = ball.origin.y + blockOffset
                 diff.y = ball.origin.y - ball.y
@@ -172,23 +207,13 @@ DO
 
     doPhysics
 
-    FOR p = 1 TO 30
-        tx = ball.x + COS(p) * (getRND * ball.radius)
-        ty = ball.y + SIN(p) * (getRND * ball.radius)
-        thisParticle = addParticle(tx, ty, FIRE, 0)
-    NEXT
-
     IF ball.x - ball.radius > arenaWidth THEN madeIt = true
 
     doCamera
 
-    _DEST 0
+    IF willRespawn THEN LINE (0, 0)-STEP(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 30), BF ELSE CLS
     IF showBG THEN
-        _DONTBLEND
-        _PUTIMAGE (camera / 2, cameraY), arenaBG
-        _BLEND
-    ELSE
-        CLS
+        drawBG
     END IF
     drawBlocks
 
@@ -197,43 +222,66 @@ DO
         ThickLine ball.x + camera, ball.y + cameraY, ball.origin.x + camera, ball.origin.y + cameraY, _RGB32(255, 255, 255), 4
     END IF
 
-    FOR p = ball.radius + glowRadius TO ball.radius + 1 STEP -1
-        CircleFill ball.x + camera, ball.y + cameraY, p, _RGBA32(238, 216, 94, map(p, ball.radius + 1, ball.radius + glowRadius, 15, 5))
-    NEXT
-    CircleFill ball.x + camera, ball.y + cameraY, ball.radius, _RGBA32(255, 255, 255, 200)
+    IF NOT willRespawn THEN
+        FOR p = 1 TO 30
+            tx = ball.x + COS(p) * (getRND * ball.radius)
+            ty = ball.y + SIN(p) * (getRND * ball.radius)
+            thisParticle = addParticle(tx, ty, FIRE, 0)
+        NEXT
+        FOR p = ball.radius + glowRadius TO ball.radius + 1 STEP -1
+            CircleFill ball.x + camera, ball.y + cameraY, p, _RGBA32(238, 216, 94, map(p, ball.radius + 1, ball.radius + glowRadius, 15, 5))
+        NEXT
+        CircleFill ball.x + camera, ball.y + cameraY, ball.radius, _RGBA32(255, 255, 255, 200)
+    END IF
 
     doParticles
 
     IF state = HALTED THEN
         IF NOT timerSet THEN m$ = "Hold ENTER to start..." ELSE m$ = "Hold ENTER to continue..."
-        IF willRespawn THEN m$ = "Ouch..."
+        IF willRespawn THEN
+            m$ = deathNote(deathNoteIndex)
+            LINE (0, 0)-(_WIDTH, _HEIGHT), _RGBA32(72, 0, 0, 180), BF
+        ELSE
+            IF TIMER - hideRed < respawnDelay / 2 THEN
+                LINE (0, 0)-(_WIDTH, _HEIGHT), _RGBA32(72, 0, 0, map(TIMER - hideRed, 0, respawnDelay / 2, 180, 0)), BF
+            END IF
+        END IF
+        _FONT largeFont
         _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
     END IF
 
     IF timerSet THEN
         m$ = STR$(TIMER - levelStarted)
         m$ = LEFT$(m$, INSTR(m$, ".") + 1)
+        _FONT smallFont
         _PRINTSTRING (_WIDTH - _PRINTWIDTH(m$), _HEIGHT - _FONTHEIGHT), m$
     END IF
 
     IF finished THEN
         m$ = "You made it!"
+        _FONT largeFont
         _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
     ELSE
         IF started THEN
             m$ = STR$(TIMER - levelStarted)
             m$ = LEFT$(m$, INSTR(m$, ".") + 1)
+            _FONT smallFont
             _PRINTSTRING (_WIDTH - _PRINTWIDTH(m$), _HEIGHT - _FONTHEIGHT), m$
         END IF
     END IF
 
+    _FONT smallFont
     m$ = "Small portals:" + STR$(smallPortal)
     _PRINTSTRING (0, 0), m$
     m$ = "Big portals:" + STR$(bigPortal)
-    _PRINTSTRING (0, 20), m$
+    _PRINTSTRING (0, _FONTHEIGHT), m$
 
     _DISPLAY
-    IF frameRate < 60 AND TIMER - frameRateRestoreTimer > 2 THEN frameRate = 60: willRespawn = false
+    IF frameRate < 60 AND TIMER - frameRateRestoreTimer > respawnDelay THEN
+        frameRate = 60
+        willRespawn = false
+        hideRed = TIMER
+    END IF
     _LIMIT frameRate
 
     IF ball.x - ball.radius > arenaWidth THEN madeIt = true
@@ -243,14 +291,13 @@ DO
         t.m$ = STR$(timeFinished - levelStarted)
         t.m$ = LEFT$(t.m$, INSTR(t.m$, ".") + 1)
         IF _KEYDOWN(13) THEN waitForRelease = true
-
+        _FONT largeFont
         DO
             IF showBG THEN
-                _DONTBLEND
-                _PUTIMAGE (camera / 2, cameraY), arenaBG
-                _BLEND
+                IF willRespawn THEN LINE (0, 0)-STEP(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 30), BF
+                drawBG
             ELSE
-                CLS
+                IF willRespawn THEN LINE (0, 0)-STEP(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 30), BF ELSE CLS
             END IF
             drawBlocks
             doParticles
@@ -287,12 +334,12 @@ DO
         ball.x.velocity = 0
         level = level + 1
         setRand level
-        drawArena
+        generateArena
         started = false
         state = HALTED
         timerSet = false
         level.g = getRND * 256
-        level.b = getRND * 256
+        level.r = getRND * 256
     END IF
 LOOP
 
@@ -318,6 +365,7 @@ SUB doPhysics
 
     IF ball.y - ball.radius / 2 > arenaHeight OR ballHit THEN
         state = HALTED
+        deathNoteIndex = _CEIL(getRND * UBOUND(deathNote))
         waitForRelease = true
         willRespawn = true
         slowMo
@@ -434,50 +482,39 @@ SUB CircleFill (CX AS LONG, CY AS LONG, R AS LONG, C AS _UNSIGNED LONG)
 END SUB
 
 
-SUB drawArena
+SUB generateArena
     DIM i AS LONG, blockSize AS INTEGER, lastGravitator AS LONG
-    DIM h AS SINGLE, y AS SINGLE, s1 AS SINGLE, s2 AS SINGLE
+    DIM w AS SINGLE, h AS SINGLE, x AS SINGLE, y AS SINGLE, s1 AS SINGLE, s2 AS SINGLE
     DIM thisParticle AS LONG, minimumDistance AS INTEGER
-    STATIC loadingHUD
 
-    IF loadingHUD = 0 THEN
-        loadingHUD = _NEWIMAGE(_WIDTH(0) / 2, _HEIGHT(0) / 2, 32)
-    END IF
-
-    _DEST loadingHUD
-    CLS , 0
+    _FONT largeFont
     m$ = "Level" + STR$(level)
-    COLOR _RGB32(0, 0, 0), 0
-    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2 + 1, _HEIGHT / 2 - _FONTHEIGHT / 2 + 1), m$
-    COLOR _RGB32(255, 255, 255), 0
-    _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
 
-    _DEST arenaBG
-    _BLEND
     CLS , _RGB32(255, 255, 255)
-    FOR i = 1 TO 25
-        LINE (getRND * _WIDTH, getRND * _HEIGHT)-(getRND * _WIDTH, getRND * _HEIGHT), _RGBA32(getRND * 256, getRND * 256, getRND * 256, getRND * 200), BF
-        '        _DONTBLEND
-        _PUTIMAGE , arenaBG, _DISPLAY
-        _PUTIMAGE , loadingHUD, _DISPLAY
-        '       _BLEND
+    FOR i = 1 TO maxBGDecoration
+        bg(i).x = getRND * (bgWidth * .6) - 200
+        bg(i).y = getRND * (bgHeight * .6) - 200
+        bg(i).w = getRND * bgWidth
+        bg(i).h = getRND * bgHeight
+        bg(i).color = _RGB32(50 + getRND * 100, 50 + getRND * 100, getRND * 50)
+        LINE (bg(i).x / 30, bg(i).y / 1.5)-STEP(bg(i).w / 30, bg(i).h / 1.5), bg(i).color, BF
+        COLOR _RGB32(0, 0, 0), 0
+        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2 + 1, _HEIGHT / 2 - _FONTHEIGHT / 2 + 1), m$
+        COLOR _RGB32(255, 255, 255), 0
+        _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
         _DISPLAY
+        _LIMIT 25
     NEXT
+
+    '_DEST arenaBG
+    'FOR i = 0 TO _WIDTH STEP blockSize
+    '    LINE (i, 0)-STEP(blockSize - 1, _HEIGHT), _RGBA32(0, 0, 0, map(i, 0, _WIDTH, 190, 80)), BF
+    'NEXT
 
     blockSize = 100
-    FOR i = 0 TO _WIDTH STEP blockSize
-        LINE (i, 0)-STEP(blockSize - 1, _HEIGHT), _RGBA32(0, 0, 0, map(i, 0, _WIDTH, 190, 80)), BF
-    NEXT
-
-    'erase previous untouched gravitators
-    FOR i = 1 TO UBOUND(particle)
-        IF particle(i).kind = GRAVITATOR OR particle(i).kind = GRAVITATORCELL THEN
-            particle(i).active = false
-        END IF
-    NEXT
-
     totalBlocks = 0
     minimumDistance = 5
+
     FOR i = 0 TO arenaWidth STEP blockSize
         'top block
         h = getRND * 256 '206 + 50
@@ -507,8 +544,6 @@ SUB drawArena
             minimumDistance = 5 + INT(getRND * 10)
         END IF
     NEXT
-    _DONTBLEND
-
     EXIT SUB
 
     addBlock:
@@ -548,7 +583,7 @@ SUB drawBlocks
         h = block(j).h
         blockSize = block(j).w
         LINE (i, y - margin)-STEP(blockSize, blockOffset + h + margin), _RGB32(0, 0, 0), BF
-        LINE (i + margin, y)-STEP(blockSize - (margin * 2), blockOffset + h - margin), _RGB32(h, level.g, level.b), BF
+        LINE (i + margin, y)-STEP(blockSize - (margin * 2), blockOffset + h - margin), _RGB32(level.r, level.g, h), BF
         IF ballHit = false THEN
             ballHit = checkCollision(ball.x, ball.y, ball.radius, i, y - margin, blockSize, blockOffset + h + margin)
         END IF
@@ -621,7 +656,6 @@ FUNCTION addParticle (x AS SINGLE, y AS SINGLE, kind AS INTEGER, parent AS LONG)
 END FUNCTION
 
 SUB doParticles
-    SHARED camera
     STATIC frames AS _INTEGER64
     DIM i AS LONG, j AS LONG, k AS SINGLE
     DIM gravity AS SINGLE
@@ -740,6 +774,7 @@ SUB doParticles
                                 particle(j).maxGeneration = 100
                                 particle(j).yVel = SIN(getRND * _PI(2)) * 10
                                 particle(j).xVel = COS(getRND * _PI(2)) * 10
+                                particle(j).parent = -1
                             END IF
                         NEXT
                     ELSEIF ball.x > particle(i).x - ball.radius / 2 AND _
@@ -751,10 +786,12 @@ SUB doParticles
                         particle(i).active = false
                         FOR j = i + 1 TO i + ellipsisPlot * 2
                             IF particle(j).parent = i THEN
-                                particle(j).kind = FIRE
+                                particle(j).kind = BUSTEDCELL
                                 particle(j).generation = 0
-                                particle(j).yVel = SIN(getRND * _PI(2)) * 10
-                                particle(j).xVel = COS(getRND * _PI(2)) * 10
+                                particle(j).maxGeneration = 50
+                                'particle(j).yVel = SIN(getRND * _PI(2)) * 10
+                                particle(j).xVel = COS(getRND * _PI(2)) '* 2
+                                particle(j).parent = -2
                             END IF
                         NEXT
                     END IF
@@ -766,7 +803,11 @@ SUB doParticles
                         FOR j = 6 TO 4 STEP -1
                             CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 6, _RGBA32(particle(i).red, particle(i).green, particle(i).blue, map(j, 4, 6, 10, 25))
                         NEXT
-                        CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 3, _RGB32(255, 244, 238)
+                        IF particle(i).parent = -1 THEN
+                            CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 3, _RGB32(255, 244, 238)
+                        ELSEIF particle(i).parent = -2 THEN
+                            CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 3, _RGB32(160, 160, 160)
+                        END IF
                     END IF
                 CASE FIRE, SMOKE
                     'show
@@ -822,5 +863,12 @@ FUNCTION getRND
 END FUNCTION
 
 SUB slowMo
-    frameRate = 24: frameRateRestoreTimer = TIMER
+    frameRate = 20: frameRateRestoreTimer = TIMER
+END SUB
+
+SUB drawBG
+    DIM i AS INTEGER
+    FOR i = maxBGDecoration TO 1 STEP -1
+        LINE (bg(i).x + camera / 2, bg(i).y + cameraY)-STEP(bg(i).w, bg(i).h), bg(i).color, BF
+    NEXT
 END SUB
