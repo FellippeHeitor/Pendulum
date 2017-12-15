@@ -1,13 +1,12 @@
 'Code below written by @FellippeHeitor, except where indicated.
 '--------------------------------------------------------------
 'Fireball whoosh sound: https://freesound.org/s/248116/
-'Match sizzle sound: https://freesound.org/s/237406/
-'Crystal sound: https://freesound.org/s/332988/
+'Thump + Match sizzle sound: https://freesound.org/s/368606/ + https://freesound.org/s/237406/
+'Glass sound: https://freesound.org/s/371091/
+'Falling particles: https://freesound.org/s/408343/
 
 OPTION _EXPLICIT
 CONST true = -1, false = 0
-
-_TITLE "I came in like a wreeeeeecking ball..."
 
 DIM SHARED gameWidth AS INTEGER, gameHeight AS INTEGER
 DIM SHARED arenaWidth AS INTEGER, arenaHeight AS INTEGER
@@ -32,7 +31,8 @@ DIM SHARED frameRate AS INTEGER, frameRateRestoreTimer AS SINGLE
 DIM SHARED respawnDelay AS SINGLE, hideRed AS SINGLE
 DIM SHARED largeFont AS LONG, smallFont AS LONG
 DIM SHARED prev.m$
-DIM SHARED whooshSound AS LONG, fireOutSound AS LONG, crystalSound AS LONG
+DIM SHARED whooshSound AS LONG, fireOutSound AS LONG
+DIM SHARED glassSound AS LONG, particlesSound AS LONG
 
 CONST maxGravitationalFloat = 10
 CONST maxGlowRadius = 25
@@ -60,15 +60,15 @@ IF smallFont = 0 THEN smallFont = 16
 
 whooshSound = _SNDOPEN("assets/whoosh.ogg")
 fireOutSound = _SNDOPEN("assets/fireout.ogg")
-crystalSound = _SNDOPEN("assets/crystal.ogg")
+glassSound = _SNDOPEN("assets/glass.ogg")
+particlesSound = _SNDOPEN("assets/particles.ogg")
 
 CONST FIRE = 1
 CONST SMOKE = 2
 CONST SPARK = 3
-CONST SOOTSTAIN = 4
-CONST GRAVITATOR = 5
-CONST GRAVITATORCELL = 6
-CONST BUSTEDCELL = 7
+CONST GRAVITATOR = 4
+CONST GRAVITATORCELL = 5
+CONST BUSTEDCELL = 6
 
 TYPE newItem
     x AS SINGLE
@@ -106,7 +106,7 @@ REDIM SHARED deathNote(1 TO 1) AS STRING, deathNoteIndex AS INTEGER
 DIM SHARED totalBlocks AS LONG
 DIM thisParticle AS LONG
 
-CONST maxRND = 1000000
+CONST maxRND = 500000
 DIM SHARED rndTable(1 TO maxRND) AS SINGLE
 DIM SHARED rndSeed AS LONG, rndIndex AS LONG
 
@@ -128,7 +128,7 @@ LOOP
 IF i& = 0 THEN deathNote(1) = "OUCH!"
 
 deathNotes:
-DATA "OUCH!","THAT MUST HURT...","WASTED","CAN'T TOUCH THIS!","BLOCKS ARE LAVA.","-"
+DATA "OUCH!","THAT MUST HURT...","WASTED","CAN'T TOUCH THIS!","THE FLOOR IS LAVA. WATER. I MEAN WATER.","-"
 
 camera = 0
 ellipsisPlot = 63
@@ -498,9 +498,8 @@ SUB generateArena
     _FONT largeFont
     m$ = "Level" + STR$(level)
 
-    CLS , _RGB32(255, 255, 255)
     FOR i = 1 TO maxBGDecoration
-        bg(i).x = getRND * (bgWidth * .6) - 200
+        bg(i).x = getRND * (bgWidth * .6) - 1000
         bg(i).y = getRND * (bgHeight * .6) - 200
         bg(i).w = getRND * bgWidth
         bg(i).h = getRND * bgHeight
@@ -635,8 +634,6 @@ FUNCTION addParticle (x AS SINGLE, y AS SINGLE, kind AS INTEGER, parent AS LONG)
             particle(newParticle).yVel = SIN(a) * 3
             particle(newParticle).xVel = COS(a) * 3
             particle(newParticle).maxGeneration = 25
-        CASE SOOTSTAIN
-            particle(newParticle).maxGeneration = 200
         CASE SMOKE
             particle(newParticle).maxGeneration = 15
         CASE GRAVITATOR
@@ -719,9 +716,6 @@ SUB doParticles
                     'process
                     particle(i).color = _RGBA32(33, 17, 39, map(particle(i).generation, 1, particle(i).maxGeneration, 100, 0))
                     IF particle(i).generation > particle(i).maxGeneration THEN particle(i).active = false
-                    'CASE SOOTSTAIN
-                    '    particle(i).color = _RGBA32(33, 17, 39, map(particle(i).generation, 1, particle(i).maxGeneration, 40, 0))
-                    '    IF particle(i).generation > particle(i).maxGeneration THEN particle(i).active = false
                 CASE SPARK
                     'process
                     particle(i).yAcc = particle(i).yAcc + gravity
@@ -775,8 +769,19 @@ SUB doParticles
                         smallPortal = smallPortal + 1
                         IF glowRadius < maxGlowRadius THEN glowRadius = glowRadius + 5
                         particle(i).active = false
-                        IF crystalSound > 0 THEN _SNDPLAYCOPY crystalSound
-                        FOR j = i + 1 TO i + ellipsisPlot * 2
+                        IF glassSound > 0 THEN _SNDPLAYCOPY glassSound
+
+                        FOR j = i + 1 TO i + ellipsisPlot + 1
+                            IF particle(j).parent = i THEN
+                                particle(j).kind = BUSTEDCELL
+                                particle(j).generation = 0
+                                particle(j).maxGeneration = 50
+                                particle(j).xVel = COS(getRND * _PI(2)) '* 2
+                                particle(j).parent = -2
+                            END IF
+                        NEXT
+
+                        FOR j = i + ellipsisPlot + 1 TO i + ellipsisPlot * 2
                             IF particle(j).parent = i THEN
                                 particle(j).kind = BUSTEDCELL
                                 particle(j).generation = 0
@@ -791,6 +796,7 @@ SUB doParticles
                            ball.y > particle(i).y - 180 AND _
                            ball.y < particle(i).y + 180 THEN
                         bigPortal = bigPortal + 1
+                        IF particlesSound > 0 THEN _SNDPLAYCOPY particlesSound
                         'glowRadius = 0
                         particle(i).active = false
                         FOR j = i + 1 TO i + ellipsisPlot * 2
@@ -809,11 +815,11 @@ SUB doParticles
                     IF particle(i).generation > particle(i).maxGeneration THEN
                         particle(i).active = false
                     ELSE
-                        FOR j = 6 TO 4 STEP -1
-                            CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 6, _RGBA32(particle(i).red, particle(i).green, particle(i).blue, map(j, 4, 6, 10, 25))
-                        NEXT
                         IF particle(i).parent = -1 THEN
-                            CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 3, _RGB32(255, 244, 238)
+                            FOR j = 6 TO 4 STEP -1
+                                CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 6, _RGBA32(particle(i).red, particle(i).green, particle(i).blue, map(j, 4, 6, 10, 25))
+                            NEXT
+                            CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 3, _RGB32(255, 255, 255)
                         ELSEIF particle(i).parent = -2 THEN
                             CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 3, _RGB32(160, 160, 160)
                         END IF
@@ -825,26 +831,6 @@ SUB doParticles
                     IF particle(i).parent > 0 THEN s = 4 'former gravitator cell
                     IF s < 2 THEN s = 2
                     CircleFill particle(i).x + camera, particle(i).y + cameraY, s, particle(i).color
-
-                    'CASE SMOKE
-                    '    IF state = HALTED THEN
-                    '        DIM l AS LONG, j AS LONG, y AS SINGLE, h AS SINGLE, blockSize AS SINGLE, margin AS SINGLE
-                    '        margin = 3
-                    '        FOR j = blockLoopStart TO totalBlocks
-                    '            l = block(j).x + camera
-                    '            IF l > _WIDTH(0) THEN EXIT FOR
-                    '            y = block(j).y + cameraY
-                    '            h = block(j).h
-                    '            blockSize = block(j).w
-                    '            IF checkCollision(particle(i).x, particle(i).y, s, l, y - margin, blockSize, blockOffset + h + margin) THEN
-                    '                addParticle particle(i).x, particle(i).y, SOOTSTAIN
-                    '                EXIT FOR
-                    '            END IF
-                    '        NEXT
-                    '    END IF
-
-                    'CASE SOOTSTAIN
-                    '    CircleFill particle(i).x + camera, particle(i).y + cameraY, 2, particle(i).color
                 CASE GRAVITATORCELL
                     'show
                     FOR j = 6 TO 4 STEP -1
@@ -855,7 +841,6 @@ SUB doParticles
         END IF
     NEXT
 END SUB
-
 
 SUB setRand (seed&)
     IF seed& > UBOUND(rndtable) OR seed& < 1 THEN
