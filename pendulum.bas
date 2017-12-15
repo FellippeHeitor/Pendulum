@@ -1,4 +1,9 @@
+'Code below written by @FellippeHeitor, except where indicated.
+'--------------------------------------------------------------
 'Fireball whoosh sound: https://freesound.org/s/248116/
+'Match sizzle sound: https://freesound.org/s/237406/
+'Crystal sound: https://freesound.org/s/332988/
+
 OPTION _EXPLICIT
 CONST true = -1, false = 0
 
@@ -13,7 +18,7 @@ DIM SHARED blockOffset AS INTEGER, respawnOffset AS SINGLE
 DIM SHARED ball.impulse, ball.radius, ball.y.velocity
 DIM SHARED ball.y.acceleration, ball.x.velocity, ball.x.acceleration
 DIM SHARED ball.origin.x, ball.origin.y, ball.x, ball.y
-DIM SHARED level.g, level.r, g AS SINGLE, k AS LONG
+DIM SHARED level.b, level.r, g AS SINGLE, k AS LONG
 DIM SHARED started AS _BYTE, p AS LONG, tx, ty, madeIt AS _BYTE
 DIM SHARED cameraCenter AS SINGLE, cameraCenterY AS SINGLE, cameraY AS SINGLE
 DIM SHARED timerSet AS _BYTE, m$, levelStarted AS SINGLE, finished AS _BYTE
@@ -27,7 +32,7 @@ DIM SHARED frameRate AS INTEGER, frameRateRestoreTimer AS SINGLE
 DIM SHARED respawnDelay AS SINGLE, hideRed AS SINGLE
 DIM SHARED largeFont AS LONG, smallFont AS LONG
 DIM SHARED prev.m$
-DIM SHARED whooshSound AS LONG
+DIM SHARED whooshSound AS LONG, fireOutSound AS LONG, crystalSound AS LONG
 
 CONST maxGravitationalFloat = 10
 CONST maxGlowRadius = 25
@@ -53,7 +58,9 @@ IF largeFont = 0 THEN largeFont = 16
 'smallFont = _LOADFONT("cour.ttf", 20, "monospace")
 IF smallFont = 0 THEN smallFont = 16
 
-whooshSound = _SNDOPEN("assets/whoosh.wav")
+whooshSound = _SNDOPEN("assets/whoosh.ogg")
+fireOutSound = _SNDOPEN("assets/fireout.ogg")
+crystalSound = _SNDOPEN("assets/crystal.ogg")
 
 CONST FIRE = 1
 CONST SMOKE = 2
@@ -148,7 +155,7 @@ level = 1
 setRand level
 generateArena
 
-level.g = getRND * 256
+level.b = getRND * 256
 level.r = getRND * 256
 
 DO
@@ -171,7 +178,7 @@ DO
                     ball.origin.y = 0
                 ELSE
                     'DO
-                    ball.origin.y = _BLUE32(POINT(ball.origin.x + camera, 0))
+                    ball.origin.y = _GREEN32(POINT(ball.origin.x + camera, 0))
                     '    IF ball.origin.y > 0 THEN EXIT DO
                     '    ball.origin.x = ball.origin.x + 1
                     'LOOP
@@ -338,7 +345,7 @@ DO
         started = false
         state = HALTED
         timerSet = false
-        level.g = getRND * 256
+        level.b = getRND * 256
         level.r = getRND * 256
     END IF
 LOOP
@@ -364,6 +371,7 @@ SUB doPhysics
     END IF
 
     IF ball.y - ball.radius / 2 > arenaHeight OR ballHit THEN
+        IF fireOutSound > 0 THEN _SNDPLAYCOPY fireOutSound
         state = HALTED
         deathNoteIndex = _CEIL(getRND * UBOUND(deathNote))
         waitForRelease = true
@@ -496,7 +504,7 @@ SUB generateArena
         bg(i).y = getRND * (bgHeight * .6) - 200
         bg(i).w = getRND * bgWidth
         bg(i).h = getRND * bgHeight
-        bg(i).color = _RGB32(50 + getRND * 100, 50 + getRND * 100, getRND * 50)
+        bg(i).color = _RGB32(50 + getRND * 100, getRND * 50, 50 + getRND * 100)
         LINE (bg(i).x / 30, bg(i).y / 1.5)-STEP(bg(i).w / 30, bg(i).h / 1.5), bg(i).color, BF
         COLOR _RGB32(0, 0, 0), 0
         _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2 + 1, _HEIGHT / 2 - _FONTHEIGHT / 2 + 1), m$
@@ -583,7 +591,7 @@ SUB drawBlocks
         h = block(j).h
         blockSize = block(j).w
         LINE (i, y - margin)-STEP(blockSize, blockOffset + h + margin), _RGB32(0, 0, 0), BF
-        LINE (i + margin, y)-STEP(blockSize - (margin * 2), blockOffset + h - margin), _RGB32(level.r, level.g, h), BF
+        LINE (i + margin, y)-STEP(blockSize - (margin * 2), blockOffset + h - margin), _RGB32(level.r, h, level.b), BF
         IF ballHit = false THEN
             ballHit = checkCollision(ball.x, ball.y, ball.radius, i, y - margin, blockSize, blockOffset + h + margin)
         END IF
@@ -767,6 +775,7 @@ SUB doParticles
                         smallPortal = smallPortal + 1
                         IF glowRadius < maxGlowRadius THEN glowRadius = glowRadius + 5
                         particle(i).active = false
+                        IF crystalSound > 0 THEN _SNDPLAYCOPY crystalSound
                         FOR j = i + 1 TO i + ellipsisPlot * 2
                             IF particle(j).parent = i THEN
                                 particle(j).kind = BUSTEDCELL
