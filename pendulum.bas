@@ -1,4 +1,4 @@
-'Code below written by @FellippeHeitor, except where indicated.
+'Fire ball on a pendulum reaching portals. Until we get a better name.
 '--------------------------------------------------------------
 'Fireball whoosh sound: https://freesound.org/s/248116/
 'Thump + Match sizzle sound: https://freesound.org/s/368606/ + https://freesound.org/s/237406/
@@ -7,6 +7,7 @@
 
 OPTION _EXPLICIT
 CONST true = -1, false = 0
+CONST debug = false
 
 DIM SHARED gameWidth AS INTEGER, gameHeight AS INTEGER
 DIM SHARED arenaWidth AS INTEGER, arenaHeight AS INTEGER
@@ -26,7 +27,7 @@ DIM SHARED diff.y, diff.x, ball.angle, ball.arm, timeFinished AS SINGLE
 DIM SHARED t.m$, mag, showBG AS _BYTE, blockLoopStart AS LONG
 DIM SHARED ballHit AS _BYTE, glowRadius AS INTEGER
 DIM SHARED ellipsisPlot AS INTEGER, waitForRelease AS _BYTE, willRespawn AS _BYTE
-DIM SHARED gravitationalFloat AS _BYTE, g.i AS _BYTE
+DIM SHARED gravitationalFloat AS SINGLE, g.angle AS SINGLE
 DIM SHARED bigPortal AS LONG, smallPortal AS LONG
 DIM SHARED frameRate AS INTEGER, frameRateRestoreTimer AS SINGLE
 DIM SHARED respawnDelay AS SINGLE, hideRed AS SINGLE
@@ -35,7 +36,7 @@ DIM SHARED prev.m$
 DIM SHARED whooshSound AS LONG, fireOutSound AS LONG
 DIM SHARED glassSound AS LONG, particlesSound AS LONG
 
-CONST maxGravitationalFloat = 10
+CONST maxGravitationalFloat = 20
 CONST maxGlowRadius = 25
 
 gameWidth = 900
@@ -711,7 +712,6 @@ FUNCTION addParticle (x AS SINGLE, y AS SINGLE, kind AS INTEGER, parent AS LONG)
 END FUNCTION
 
 SUB doParticles
-    STATIC frames AS _INTEGER64
     DIM i AS LONG, j AS LONG, k AS SINGLE
     DIM gravity AS SINGLE
     DIM g AS _UNSIGNED _BYTE, b AS _UNSIGNED _BYTE, a AS _UNSIGNED _BYTE
@@ -719,15 +719,9 @@ SUB doParticles
 
     gravity = .02
 
-    frames = frames + 1
-
-    IF g.i = 0 THEN g.i = 1
-
-    IF frames MOD 10 = 0 THEN
-        gravitationalFloat = gravitationalFloat + g.i
-        IF gravitationalFloat > maxGravitationalFloat THEN g.i = g.i * -1
-        IF gravitationalFloat < -maxGravitationalFloat THEN g.i = g.i * -1
-    END IF
+    g.angle = g.angle + .01
+    IF g.angle > _PI(2) THEN g.angle = g.angle - _PI(2)
+    gravitationalFloat = SIN(g.angle) * maxGravitationalFloat
 
     FOR i = 1 TO UBOUND(particle)
         IF particle(i).active THEN
@@ -815,6 +809,14 @@ SUB doParticles
                     NEXT
 
                     'ball VS gravitator collision detection:
+                    IF debug THEN
+                        LINE (camera + particle(i).x - ball.radius / 2, cameraY + particle(i).y - 180)-STEP(ball.radius, 0), _RGB32(255, 255, 255)
+                        LINE (camera + particle(i).x - ball.radius / 2, cameraY + particle(i).y + 180)-STEP(ball.radius, 0), _RGB32(255, 255, 255)
+                        LINE (camera + particle(i).x - ball.radius * 2, cameraY + particle(i).y - 30)-STEP(0, 60), _RGB32(255, 255, 255)
+                        LINE (camera + particle(i).x + ball.radius * 2, cameraY + particle(i).y - 30)-STEP(0, 60), _RGB32(255, 255, 255)
+                        CIRCLE (particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat), ball.radius * 2.5, _RGB32(255, 255, 255)
+                    END IF
+
                     IF dist(ball.x, ball.y, particle(i).x, particle(i).y + gravitationalFloat) < ball.radius * 2.5 THEN
                         smallPortal = smallPortal + 1
                         IF glowRadius < maxGlowRadius THEN glowRadius = glowRadius + 5
@@ -837,14 +839,16 @@ SUB doParticles
                                 particle(j).generation = 0
                                 particle(j).maxGeneration = 100
                                 particle(j).yVel = SIN(getRND * _PI(2)) * 10
-                                particle(j).xVel = COS(getRND * _PI(2)) * 10
+                                DO
+                                    particle(j).xVel = COS(getRND * _PI(2)) * 10
+                                LOOP UNTIL SGN(particle(j).xVel) = 1
                                 particle(j).parent = -1
                             END IF
                         NEXT
-                    ELSEIF ball.x > particle(i).x - ball.radius / 2 AND _
-                           ball.x < particle(i).x + ball.radius / 2 AND _
-                           ball.y > particle(i).y - 180 AND _
-                           ball.y < particle(i).y + 180 THEN
+                    ELSEIF ball.x > particle(i).x - ball.radius*2 AND _
+                           ball.x < particle(i).x + ball.radius*2 AND _
+                           ball.y > particle(i).y - 180 + gravitationalFloat AND _
+                           ball.y < particle(i).y + 180 + gravitationalFloat THEN
                         bigPortal = bigPortal + 1
                         IF particlesSound > 0 THEN _SNDPLAYCOPY particlesSound
                         'glowRadius = 0
