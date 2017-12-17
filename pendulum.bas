@@ -17,6 +17,7 @@ DIM SHARED blockOffset AS INTEGER, respawnOffset AS SINGLE
 DIM SHARED ball.impulse, ball.radius, ball.y.velocity
 DIM SHARED ball.y.acceleration, ball.x.velocity, ball.x.acceleration
 DIM SHARED ball.origin.x, ball.origin.y, ball.x, ball.y
+DIM SHARED ball.mass
 DIM SHARED level.b, level.r, g AS SINGLE, k AS LONG
 DIM SHARED started AS _BYTE, p AS LONG, tx, ty, madeIt AS _BYTE
 DIM SHARED cameraCenter AS SINGLE, cameraCenterY AS SINGLE, cameraY AS SINGLE
@@ -144,12 +145,17 @@ ball.origin.x = _WIDTH(gameScreen) / 2
 ball.origin.y = 0
 ball.x = ball.radius * 1.5
 ball.y = arenaHeight / respawnOffset
+ball.mass = 1
+
 deathNoteIndex = _CEIL(getRND * UBOUND(deathNote))
 
 DIM SHARED state AS _BYTE
 CONST HALTED = 0
 CONST FALLING = 1
 CONST SWINGING = 2
+
+DIM vr AS DOUBLE
+DIM vt AS DOUBLE
 
 level = 1
 setRand level
@@ -170,8 +176,6 @@ DO
                     levelStarted = TIMER
                 END IF
 
-                ball.y.acceleration = ball.y.acceleration / 25
-                ball.y.velocity = ball.y.acceleration
                 ball.origin.x = ball.x + _WIDTH(gameScreen) / _CEIL(map(ball.y, 0, _HEIGHT, 6, 4))
                 IF ball.origin.x > arenaWidth THEN
                     finished = true
@@ -184,10 +188,18 @@ DO
                     'LOOP
                 END IF
                 ball.origin.y = ball.origin.y + blockOffset
-                diff.y = ball.origin.y - ball.y
-                diff.x = ball.origin.x - ball.x
-                ball.angle = _ATAN2(-1 * diff.y, diff.x) - _D2R(90)
+
                 ball.arm = dist(ball.x, ball.y, ball.origin.x, ball.origin.y)
+
+                diff.y = ball.y - ball.origin.y
+                diff.x = ball.x - ball.origin.x
+                ball.angle = _ATAN2(diff.x, diff.y)
+
+                ' Eliminate radial velocity component but keep the tangential component.
+                vt = ball.x.velocity * -COS(ball.angle) + ball.y.velocity * SIN(ball.angle)
+                ball.x.velocity = vt * -COS(ball.angle)
+                ball.y.velocity = vt * SIN(ball.angle)
+
             END IF
         END IF
     ELSE
@@ -196,11 +208,6 @@ DO
         ELSE
             IF state = SWINGING AND NOT finished THEN
                 state = FALLING
-                mag = ball.y.velocity * 1000
-                IF mag > 10 THEN mag = 10
-                IF mag < -10 THEN mag = -10
-                ball.x.velocity = COS(ball.angle) * mag
-                ball.y.velocity = -SIN(ball.angle) * mag
             END IF
         END IF
     END IF
@@ -351,23 +358,66 @@ DO
 LOOP
 
 SUB doPhysics
+    DIM DeltaTime AS DOUBLE
+    DIM GravConst AS DOUBLE
+    DIM Tension AS DOUBLE
+    DIM Theta AS DOUBLE
+    DIM Mass AS DOUBLE
+    DIM MagVel AS DOUBLE
+    DIM L AS DOUBLE
+    DIM vr AS DOUBLE
+    DIM vt AS DOUBLE
+    DeltaTime = 0.5
+    GravConst = 1
+    L = ball.arm
+    Mass = ball.mass
+
+    diff.y = ball.y - ball.origin.y
+    diff.x = ball.x - ball.origin.x
+    ball.angle = _ATAN2(diff.x, diff.y)
+    Theta = ball.angle
+
     IF state = FALLING THEN
-        g = .1
-        ball.y.acceleration = ball.y.acceleration + g / 10
-        ball.y.velocity = ball.y.velocity + ball.y.acceleration
-        ball.y = ball.y + ball.y.velocity
+        ball.x.acceleration = 0
+        ball.y.acceleration = GravConst
+        ball.x.velocity = ball.x.velocity + DeltaTime * ball.x.acceleration
+        ball.y.velocity = ball.y.velocity + DeltaTime * ball.y.acceleration
 
-        ball.x = ball.x + ball.x.velocity
+        'Damping:
+        IF (ball.y.velocity < 0) THEN ball.y.velocity = ball.y.velocity * (1 - .025)
+        ball.x.velocity = ball.x.velocity * (1 - .025)
+
+        ball.y = ball.y + DeltaTime * ball.y.velocity
+        ball.x = ball.x + DeltaTime * ball.x.velocity
+
     ELSEIF state = SWINGING THEN
-        g = .9
-        ball.y.acceleration = (-1 * g / ball.arm) * SIN(ball.angle)
-        ball.y.velocity = ball.y.velocity + ball.y.acceleration
-        ball.y.velocity = ball.y.velocity * ball.impulse
+        MagVel = SQR(ball.x.velocity ^ 2 + ball.y.velocity ^ 2)
 
-        ball.angle = ball.angle + ball.y.velocity
+        Tension = Mass * GravConst * COS(Theta) + Mass * (MagVel ^ 2) / L
 
-        ball.x = ball.origin.x + (ball.arm * SIN(ball.angle))
-        ball.y = ball.origin.y + (ball.arm * COS(ball.angle))
+        ball.x.acceleration = (-1 / Mass) * (Tension * SIN(Theta))
+        ball.y.acceleration = (-1 / Mass) * (Tension * COS(Theta) - GravConst)
+
+        ball.x.velocity = ball.x.velocity + DeltaTime * ball.x.acceleration
+        ball.y.velocity = ball.y.velocity + DeltaTime * ball.y.acceleration
+
+        ' Artificial boost:
+        ' (i  ) Convert X-Y representation of velocity to R-Theta representation.
+        ' (ii ) Boost along the tangential direction.
+        ' (iii) De-boost in the radial direction (OPTIONAL).
+        ' (iv ) Convert back to XY.
+
+        vr = ball.x.velocity * SIN(ball.angle) + ball.y.velocity * COS(ball.angle)
+        vt = ball.x.velocity * -COS(ball.angle) + ball.y.velocity * SIN(ball.angle)
+
+        IF (ball.x.velocity > 0) THEN vt = vt * (1 + 0.015)
+        vr = vr * (1 + 0.05)
+
+        ball.x.velocity = vr * SIN(ball.angle) + vt * -COS(ball.angle)
+        ball.y.velocity = vr * COS(ball.angle) + vt * SIN(ball.angle)
+
+        ball.x = ball.x + DeltaTime * ball.x.velocity
+        ball.y = ball.y + DeltaTime * ball.y.velocity
     END IF
 
     IF ball.y - ball.radius / 2 > arenaHeight OR ballHit THEN
@@ -866,3 +916,4 @@ SUB drawBG
         LINE (bg(i).x + camera / 2, bg(i).y + cameraY)-STEP(bg(i).w, bg(i).h), bg(i).color, BF
     NEXT
 END SUB
+
