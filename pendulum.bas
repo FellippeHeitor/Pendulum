@@ -14,13 +14,18 @@ OPTION _EXPLICIT
 CONST true = -1, false = 0
 CONST debug = false
 
+TYPE newVector
+    x AS SINGLE
+    y AS SINGLE
+END TYPE
+
 DIM SHARED gameWidth AS INTEGER, gameHeight AS INTEGER
 DIM SHARED arenaWidth AS INTEGER, arenaHeight AS INTEGER
 DIM SHARED blockSize AS INTEGER
 DIM SHARED bgWidth AS INTEGER, bgHeight AS INTEGER
 DIM SHARED gameScreen AS LONG
 DIM SHARED level AS LONG, camera AS SINGLE
-DIM SHARED respawnOffset AS INTEGER
+DIM SHARED respawnOffset AS SINGLE
 DIM SHARED ball.radius, ball.y.velocity
 DIM SHARED ball.y.acceleration, ball.x.velocity, ball.x.acceleration
 DIM SHARED ball.origin.x, ball.origin.y, ball.x, ball.y
@@ -43,6 +48,7 @@ DIM SHARED prev.m$
 DIM SHARED whooshSound AS LONG, fireOutSound AS LONG
 DIM SHARED glassSound AS LONG, particlesSound AS LONG
 DIM SHARED nextTetherPoint.x AS LONG, nextTetherPoint.y AS LONG
+DIM SHARED stretchLevel AS INTEGER, stretchingString AS newVector
 
 CONST maxGravitationalFloat = 20
 CONST maxGlowRadius = 21
@@ -84,14 +90,11 @@ CONST GRAVITATORCELL = 5
 CONST BUSTEDCELL = 6
 
 TYPE newItem
-    x AS SINGLE
-    y AS SINGLE
+    pos AS newVector
+    acc AS newVector
+    vel AS newVector
     w AS SINGLE
     h AS SINGLE
-    yAcc AS SINGLE
-    yVel AS SINGLE
-    xAcc AS SINGLE
-    xVel AS SINGLE
     a AS SINGLE
     b AS SINGLE
     minA AS SINGLE
@@ -111,7 +114,7 @@ TYPE newItem
     maxGeneration AS INTEGER
 END TYPE
 
-CONST maxBGDecoration = 50
+CONST maxBGDecoration = 40 'multiples of 4
 REDIM SHARED bg(1 TO maxBGDecoration) AS newItem
 REDIM SHARED block(200) AS newItem
 REDIM SHARED particle(5000) AS newItem
@@ -119,11 +122,11 @@ REDIM SHARED deathNote(1 TO 1) AS STRING, deathNoteIndex AS INTEGER
 DIM SHARED totalBlocks AS LONG, totalSparks AS LONG
 DIM thisParticle AS LONG
 
-CONST maxRND = 500000
+CONST maxRND = 10000
 DIM SHARED rndTable(1 TO maxRND) AS SINGLE
 DIM SHARED rndSeed AS LONG, rndIndex AS LONG
 
-RANDOMIZE 4
+RANDOMIZE 37
 DIM i&
 FOR i& = 1 TO maxRND
     rndTable(i&) = noise(i&, 0, 0)
@@ -149,9 +152,10 @@ DIM SHARED state AS _BYTE
 CONST HALTED = 0
 CONST FALLING = 1
 CONST SWINGING = 2
+CONST STRETCHING = 3
 
-DIM vr AS DOUBLE
-DIM vt AS DOUBLE
+DIM vr AS SINGLE
+DIM vt AS SINGLE
 
 ellipsisPlot = 63
 
@@ -170,32 +174,16 @@ deathNoteIndex = _CEIL(RND * UBOUND(deathNote))
 DO
     IF _KEYDOWN(13) THEN
         IF NOT waitForRelease AND NOT willRespawn THEN
-            IF state <> SWINGING THEN
-                IF whooshSound > 0 THEN _SNDPLAYCOPY whooshSound
-                state = SWINGING
+            IF state <> STRETCHING AND state <> SWINGING THEN
+                state = STRETCHING
                 started = true
+                stretchLevel = 0
                 IF timerSet = false THEN
                     timerSet = true
                     levelStarted = TIMER
                 END IF
-
                 ball.origin.x = nextTetherPoint.x
                 ball.origin.y = nextTetherPoint.y
-                IF ball.origin.x > arenaWidth THEN
-                    finished = true
-                END IF
-
-                ball.arm = dist(ball.x, ball.y, ball.origin.x, ball.origin.y)
-
-                diff.y = ball.y - ball.origin.y
-                diff.x = ball.x - ball.origin.x
-                ball.angle = _ATAN2(diff.x, diff.y)
-
-                ' Eliminate radial velocity component but keep the tangential component.
-                vt = ball.x.velocity * -COS(ball.angle) + ball.y.velocity * SIN(ball.angle)
-                ball.x.velocity = vt * -COS(ball.angle)
-                ball.y.velocity = vt * SIN(ball.angle)
-
             END IF
         END IF
     ELSE
@@ -212,8 +200,8 @@ DO
     IF k = 9 AND _KEYDOWN(100304) = false THEN GOTO setNewLevel
     IF k = 9 AND _KEYDOWN(100304) AND level > 1 THEN level = level - 2: GOTO setNewLevel
     IF k = ASC("B") OR k = ASC("b") THEN showBG = NOT showBG
-    IF k = ASC("W") OR k = ASC("w") THEN ball.y = ball.y + 1
-    IF k = ASC("S") OR k = ASC("s") THEN ball.y = ball.y - 1
+    IF k = ASC("W") OR k = ASC("w") THEN IF NOT _KEYDOWN(100304) THEN ball.y = ball.y + 1 ELSE ball.y = ball.y + .1
+    IF k = ASC("S") OR k = ASC("s") THEN IF NOT _KEYDOWN(100304) THEN ball.y = ball.y - 1 ELSE ball.y = ball.y - .1
 
     doPhysics
 
@@ -227,7 +215,36 @@ DO
     END IF
     drawBlocks
 
-    IF state = SWINGING THEN
+    IF state = STRETCHING THEN
+        stretchLevel = stretchLevel + 10
+        IF stretchLevel = 100 THEN
+            IF whooshSound > 0 THEN _SNDPLAYCOPY whooshSound
+            state = SWINGING
+
+            IF ball.origin.x > arenaWidth THEN
+                finished = true
+            END IF
+
+            ball.arm = dist(ball.x, ball.y, ball.origin.x, ball.origin.y)
+
+            diff.y = ball.y - ball.origin.y
+            diff.x = ball.x - ball.origin.x
+            ball.angle = _ATAN2(diff.x, diff.y)
+
+            ' Eliminate radial velocity component but keep the tangential component.
+            vt = ball.x.velocity * -COS(ball.angle) + ball.y.velocity * SIN(ball.angle)
+            ball.x.velocity = vt * -COS(ball.angle)
+            ball.y.velocity = vt * SIN(ball.angle)
+        ELSE
+            stretchingString.x = lerp(ball.x, ball.origin.x, stretchLevel / 100)
+            stretchingString.y = lerp(ball.y, ball.origin.y, stretchLevel / 100)
+            FOR p = 1 TO 10
+                thisParticle = addParticle(stretchingString.x, stretchingString.y, FIRE, 0)
+            NEXT
+            ThickLine ball.x + camera, ball.y + cameraY, stretchingString.x + camera, stretchingString.y + cameraY, _RGB32(0, 0, 0), 8
+            ThickLine ball.x + camera, ball.y + cameraY, stretchingString.x + camera, stretchingString.y + cameraY, _RGB32(255, 255, 255), 4
+        END IF
+    ELSEIF state = SWINGING THEN
         ThickLine ball.x + camera, ball.y + cameraY, ball.origin.x + camera, ball.origin.y + cameraY, _RGB32(0, 0, 0), 8
         ThickLine ball.x + camera, ball.y + cameraY, ball.origin.x + camera, ball.origin.y + cameraY, _RGB32(255, 255, 255), 4
     END IF
@@ -242,6 +259,14 @@ DO
             CircleFill ball.x + camera, ball.y + cameraY, p, _RGBA32(238, 216, 94, map(p, ball.radius + 1, ball.radius + glowRadius, 15, 5))
         NEXT
         CircleFill ball.x + camera, ball.y + cameraY, ball.radius, _RGBA32(255, 255, 255, 200)
+    END IF
+
+    IF state = SWINGING THEN
+        FOR p = 1 TO 5
+            tx = ball.origin.x + COS(p) * (RND * ball.radius / 4)
+            ty = ball.origin.y + SIN(p) * (RND * ball.radius / 4)
+            thisParticle = addParticle(tx, ty, FIRE, 0)
+        NEXT
     END IF
 
     doParticles
@@ -261,6 +286,7 @@ DO
     END IF
 
     IF timerSet THEN
+        IF levelStarted > TIMER THEN levelStarted = levelStarted - 86400
         m$ = STR$(TIMER - levelStarted)
         m$ = LEFT$(m$, INSTR(m$, ".") + 1)
         _FONT smallFont
@@ -285,8 +311,6 @@ DO
     _PRINTSTRING (0, 0), m$
     m$ = "Big portals:" + STR$(bigPortal)
     _PRINTSTRING (0, _FONTHEIGHT), m$
-    m$ = "CameraY:" + STR$(cameraY) + " ball.y:" + STR$(ball.y)
-    _PRINTSTRING (0, _FONTHEIGHT * 2), m$
 
     _DISPLAY
     IF frameRate < 60 AND TIMER - frameRateRestoreTimer > respawnDelay THEN
@@ -305,11 +329,9 @@ DO
         IF _KEYDOWN(13) THEN waitForRelease = true
         _FONT largeFont
         DO
+            IF willRespawn THEN LINE (0, 0)-STEP(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 30), BF ELSE CLS
             IF showBG THEN
-                IF willRespawn THEN LINE (0, 0)-STEP(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 30), BF
                 drawBG
-            ELSE
-                IF willRespawn THEN LINE (0, 0)-STEP(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 30), BF ELSE CLS
             END IF
             drawBlocks
             doParticles
@@ -355,15 +377,15 @@ DO
 LOOP
 
 SUB doPhysics
-    DIM DeltaTime AS DOUBLE
-    DIM GravConst AS DOUBLE
-    DIM Tension AS DOUBLE
-    DIM Theta AS DOUBLE
-    DIM Mass AS DOUBLE
-    DIM MagVel AS DOUBLE
-    DIM L AS DOUBLE
-    DIM vr AS DOUBLE
-    DIM vt AS DOUBLE
+    DIM DeltaTime AS SINGLE
+    DIM GravConst AS SINGLE
+    DIM Tension AS SINGLE
+    DIM Theta AS SINGLE
+    DIM Mass AS SINGLE
+    DIM MagVel AS SINGLE
+    DIM L AS SINGLE
+    DIM vr AS SINGLE
+    DIM vt AS SINGLE
     DeltaTime = 0.5
     GravConst = 1
     L = ball.arm
@@ -374,7 +396,7 @@ SUB doPhysics
     ball.angle = _ATAN2(diff.x, diff.y)
     Theta = ball.angle
 
-    IF state = FALLING THEN
+    IF state = FALLING OR state = STRETCHING THEN
         ball.x.acceleration = 0
         ball.y.acceleration = GravConst
         ball.x.velocity = ball.x.velocity + DeltaTime * ball.x.acceleration
@@ -548,31 +570,34 @@ SUB generateArena
     DIM colorVariation AS INTEGER
     DIM thisParticle AS LONG, minimumDistance AS INTEGER
 
-    level.r = getRND * 256
-    level.g = getRND * 256
-    level.b = getRND * 256
+    level.r = 80 + getRND * 176
+    level.g = 80 + getRND * 176
+    level.b = 80 + getRND * 176
 
     _FONT largeFont
     m$ = "Level" + STR$(level)
     FOR k = 1 TO maxBGDecoration
-        LINE (0, 0)-STEP(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 20), BF
+        IF k MOD 1 = 0 THEN x = 0: y = 0
+        IF k MOD 2 = 0 THEN x = bgWidth / 2: y = 0
+        IF k MOD 3 = 0 THEN x = 0: y = bgHeight / 2
+        IF k MOD 4 = 0 THEN x = bgWidth / 2: y = bgHeight / 2
+        LINE (0, 0)-STEP(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 15), BF
         bg(k).w = getRND * bgWidth
         bg(k).h = getRND * bgHeight
-        bg(k).x = getRND * bgWidth - bg(k).w / 3
-        bg(k).y = getRND * bgHeight - bg(k).h / 3
-        colorVariation = -(getRND * 256)
+        bg(k).pos.x = (getRND * (bgWidth / 4) + x) - bg(k).w / 2
+        bg(k).pos.y = (getRND * (bgHeight / 4) + y) - bg(k).h / 2
+        colorVariation = -(getRND * 200)
         bg(k).red = level.r + colorVariation
         bg(k).green = level.g + colorVariation
         bg(k).blue = level.b + colorVariation
         bg(k).color = _RGB32(level.r + colorVariation, level.g + colorVariation, level.b + colorVariation)
-        LINE (bg(k).x, bg(k).y)-STEP(bg(k).w, bg(k).h), bg(k).color, BF
-        LINE (bg(k).x / (arenaRatio.x * 2), bg(k).y / arenaRatio.y)-STEP(bg(k).w / (arenaRatio.x * 2), bg(k).h / arenaRatio.y), bg(k).color, BF
+        LINE (bg(k).pos.x / (arenaRatio.x * 2), bg(k).pos.y / arenaRatio.y)-STEP(bg(k).w / (arenaRatio.x * 2), bg(k).h / arenaRatio.y), bg(k).color, BF
         COLOR _RGB32(0, 0, 0), 0
         _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2 + 1, _HEIGHT / 2 - _FONTHEIGHT / 2 + 1), m$
         COLOR _RGB32(255, 255, 255), 0
         _PRINTSTRING (_WIDTH / 2 - _PRINTWIDTH(m$) / 2, _HEIGHT / 2 - _FONTHEIGHT / 2), m$
         _DISPLAY
-        _LIMIT 30
+        _LIMIT 24
     NEXT
 
     totalBlocks = 0
@@ -616,8 +641,8 @@ SUB generateArena
     addBlock:
     totalBlocks = totalBlocks + 1
     IF totalBlocks > UBOUND(block) THEN REDIM _PRESERVE block(UBOUND(block) + 99) AS newItem
-    block(totalBlocks).x = i
-    block(totalBlocks).y = y
+    block(totalBlocks).pos.x = i
+    block(totalBlocks).pos.y = y
     block(totalBlocks).h = h
     block(totalBlocks).w = blockSize
     IF totalBlocks MOD 2 = 0 THEN
@@ -626,7 +651,7 @@ SUB generateArena
         block(totalBlocks).green = block(totalBlocks - 1).green
         block(totalBlocks).blue = block(totalBlocks - 1).blue
     ELSE
-        colorVariation = 75 - getRND * 150
+        colorVariation = 100 - getRND * 200
         block(totalBlocks).red = level.r + colorVariation
         block(totalBlocks).green = level.g + colorVariation
         block(totalBlocks).blue = level.b + colorVariation
@@ -647,7 +672,7 @@ SUB ThickLine (x, y, x1, y1, c AS _UNSIGNED LONG, t)
 END SUB
 
 SUB drawBlocks
-    DIM margin, j AS LONG
+    DIM margin, j AS LONG, checkOffset AS SINGLE
     DIM i AS SINGLE, y AS SINGLE, h AS SINGLE
     DIM blockSize AS SINGLE
     DIM s1 AS INTEGER, s2 AS INTEGER
@@ -657,32 +682,34 @@ SUB drawBlocks
     blockLoopStart = INT(ABS(camera) / (block(1).w / 2)) - 2
     IF blockLoopStart < 1 THEN blockLoopStart = 1
     FOR j = blockLoopStart TO totalBlocks
-        i = block(j).x + camera
+        i = block(j).pos.x + camera
         IF i > _WIDTH(0) THEN EXIT FOR
-        y = block(j).y + cameraY
+        y = block(j).pos.y + cameraY
         h = block(j).h
         blockSize = block(j).w
-        IF TIMER - levelSet < respawnDelay THEN
-            LINE (i, y - margin)-STEP(blockSize, h + margin), _RGBA32(0, 0, 0, map(TIMER - levelSet, 0, respawnDelay, 0, 255)), BF
-            LINE (i + margin, y)-STEP(blockSize - (margin * 2), h - margin), _RGBA32(block(j).red, block(j).green, block(j).blue, map(TIMER - levelSet, 0, respawnDelay, 0, 255)), BF
-        ELSE
-            LINE (i, y - margin)-STEP(blockSize, h + margin), _RGB32(0, 0, 0), BF
-            LINE (i + margin, y)-STEP(blockSize - (margin * 2), h - margin), block(j).color, BF
-        END IF
+        LINE (i, y - margin)-STEP(blockSize, h + margin), _RGB32(0, 0, 0), BF
+        LINE (i + margin, y)-STEP(blockSize - (margin * 2), h - margin), block(j).color, BF
         IF ballHit = false THEN
             ballHit = checkCollision(ball.x, ball.y, ball.radius, i, y - margin, blockSize, h + margin)
         END IF
 
-        IF ball.x > block(j).x AND ball.x < block(j).x + block(j).w AND block(j).y = 0 THEN
+        IF ball.x > block(j).pos.x AND ball.x < block(j).pos.x + block(j).w AND block(j).pos.y = 0 THEN
             IF j + 4 <= UBOUND(block) THEN
-                nextTetherPoint.x = block(j + 4).x + block(j + 4).w / 2
-                nextTetherPoint.y = block(j + 4).y + block(j + 4).h
+                nextTetherPoint.x = block(j + 4).pos.x + block(j + 4).w / 2
+                nextTetherPoint.y = block(j + 4).pos.y + block(j + 4).h
                 s1 = block(j + 4).h
                 s2 = s1 + 500
                 respawnOffset = s1 + ((s2 - s1) / 2)
+                IF STR$(respawnOffset) = STR$(INT(respawnOffset)) THEN
+                    IF respawnOffset >= 328 THEN
+                        checkOffset = respawnOffset - 328
+                        IF checkOffset MOD 3 = 0 THEN respawnOffset = respawnOffset + .1
+                    END IF
+                END IF
             ELSE
                 nextTetherPoint.x = ball.x + _WIDTH(gameScreen) / 5
                 nextTetherPoint.y = 0
+                finished = true
             END IF
             IF nextTetherPoint.x < ball.x THEN
                 nextTetherPoint.x = ball.x + _WIDTH(gameScreen) / 5
@@ -690,6 +717,9 @@ SUB drawBlocks
             END IF
         END IF
     NEXT
+    IF TIMER - levelSet < respawnDelay THEN
+        LINE (0, 0)-(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, map(TIMER - levelSet, 0, respawnDelay, 255, 0)), BF
+    END IF
 END SUB
 
 FUNCTION addParticle (x AS SINGLE, y AS SINGLE, kind AS INTEGER, parent AS LONG)
@@ -708,12 +738,12 @@ FUNCTION addParticle (x AS SINGLE, y AS SINGLE, kind AS INTEGER, parent AS LONG)
         REDIM _PRESERVE particle(1 TO UBOUND(particle) + 99) AS newItem
     END IF
 
-    particle(newParticle).x = x
-    particle(newParticle).xVel = 0
-    particle(newParticle).xAcc = 0
-    particle(newParticle).y = y
-    particle(newParticle).yVel = 0
-    particle(newParticle).yAcc = 0
+    particle(newParticle).pos.x = x
+    particle(newParticle).vel.x = 0
+    particle(newParticle).acc.x = 0
+    particle(newParticle).pos.y = y
+    particle(newParticle).vel.y = 0
+    particle(newParticle).acc.y = 0
     particle(newParticle).kind = kind
     particle(newParticle).parent = parent
     particle(newParticle).generation = 0
@@ -723,11 +753,11 @@ FUNCTION addParticle (x AS SINGLE, y AS SINGLE, kind AS INTEGER, parent AS LONG)
 
     SELECT CASE kind
         CASE FIRE
-            particle(newParticle).yVel = SIN(a) * 2
-            particle(newParticle).xVel = COS(a) * 2
+            particle(newParticle).vel.y = SIN(a) * 2
+            particle(newParticle).vel.x = COS(a) * 2
         CASE SPARK
-            particle(newParticle).yVel = SIN(a) * 3
-            particle(newParticle).xVel = COS(a) * 3
+            particle(newParticle).vel.y = SIN(a) * 3
+            particle(newParticle).vel.x = COS(a) * 3
             particle(newParticle).maxGeneration = 25
         CASE SMOKE
             particle(newParticle).maxGeneration = 15
@@ -760,6 +790,9 @@ SUB doParticles
     DIM gravity AS SINGLE
     DIM g AS _UNSIGNED _BYTE, b AS _UNSIGNED _BYTE, a AS _UNSIGNED _BYTE
     DIM s AS SINGLE, thisParticle AS LONG
+    STATIC previousParent AS LONG, startingChild AS LONG
+    STATIC starting.x AS SINGLE, starting.y AS SINGLE
+    STATIC last.x AS SINGLE, last.y AS SINGLE
 
     gravity = .02
 
@@ -773,11 +806,11 @@ SUB doParticles
         IF particle(i).active THEN
             particle(i).generation = particle(i).generation + 1
 
-            particle(i).yVel = particle(i).yVel + particle(i).yAcc
-            particle(i).y = particle(i).y + particle(i).yVel
+            particle(i).vel.y = particle(i).vel.y + particle(i).acc.y
+            particle(i).pos.y = particle(i).pos.y + particle(i).vel.y
 
-            particle(i).xVel = particle(i).xVel + particle(i).xAcc
-            particle(i).x = particle(i).x + particle(i).xVel
+            particle(i).vel.x = particle(i).vel.x + particle(i).acc.x
+            particle(i).pos.x = particle(i).pos.x + particle(i).vel.x
 
             SELECT EVERYCASE particle(i).kind
                 CASE FIRE
@@ -786,16 +819,16 @@ SUB doParticles
                         particle(i).kind = SMOKE
                         particle(i).maxGeneration = 15
                         particle(i).generation = 0
-                        particle(i).yVel = 0
-                        particle(i).xVel = 0
-                        particle(i).yAcc = -.4
-                        particle(i).xAcc = -.2
+                        particle(i).vel.y = 0
+                        particle(i).vel.x = 0
+                        particle(i).acc.y = -.4
+                        particle(i).acc.x = -.2
                     ELSE
                         SELECT EVERYCASE particle(i).generation
                             CASE 1, 2: g = 238: b = 177: a = 200
                             CASE 3
                                 s = RND
-                                IF s < .02 THEN thisParticle = addParticle(particle(i).x, particle(i).y, SPARK, i)
+                                IF s < .02 THEN thisParticle = addParticle(particle(i).pos.x, particle(i).pos.y, SPARK, i)
                             CASE 3, 4: g = 222: b = 89: a = 180
                             CASE 5, 6: g = 128: b = 50: a = 150
                             CASE 7, 8: g = 33: b = 0: a = 70
@@ -809,7 +842,7 @@ SUB doParticles
                 CASE SPARK
                     totalSparks = totalSparks + 1
                     'process
-                    particle(i).yAcc = particle(i).yAcc + gravity
+                    particle(i).acc.y = particle(i).acc.y + gravity
                     SELECT CASE particle(i).generation
                         CASE 1, 2: g = 238: b = 177
                         CASE 3, 4: g = 222: b = 89
@@ -822,9 +855,9 @@ SUB doParticles
 
                     'show
                     FOR p = glowRadius TO 1 STEP -1
-                        CircleFill particle(i).x + camera, particle(i).y + cameraY, p, _RGBA32(238, 216, 94, map(p, 1, glowRadius, 15, 5))
+                        CircleFill particle(i).pos.x + camera, particle(i).pos.y + cameraY, p, _RGBA32(238, 216, 94, map(p, 1, glowRadius, 15, 5))
                     NEXT
-                    CircleFill particle(i).x + camera, particle(i).y + cameraY, 1, particle(i).color
+                    CircleFill particle(i).pos.x + camera, particle(i).pos.y + cameraY, 1, particle(i).color
                 CASE GRAVITATOR
                     'particle(i).a = particle(i).a + particle(i).multA
                     'IF particle(i).a > particle(i).maxA OR particle(i).a < particle(i).minA THEN
@@ -841,8 +874,8 @@ SUB doParticles
                     FOR j = i + 1 TO i + ellipsisPlot + 1
                         IF particle(j).parent = i THEN
                             k = k + .1
-                            particle(j).x = particle(i).x + COS(k) * map(particle(j).x + camera, 0, _WIDTH(0), particle(i).minA, particle(i).maxA)
-                            particle(j).y = particle(i).y + SIN(k) * particle(i).b
+                            particle(j).pos.x = particle(i).pos.x + COS(k) * map(particle(j).pos.x + camera, 0, _WIDTH(0), particle(i).minA, particle(i).maxA)
+                            particle(j).pos.y = particle(i).pos.y + SIN(k) * particle(i).b
                         END IF
                     NEXT
 
@@ -850,22 +883,22 @@ SUB doParticles
                     FOR j = i + ellipsisPlot + 1 TO i + ellipsisPlot * 2
                         IF particle(j).parent = i THEN
                             k = k + .1
-                            particle(j).x = particle(i).x + COS(k) * map(particle(j).x + camera, 0, _WIDTH(0), particle(i).minA, particle(i).maxA / 3)
-                            particle(j).y = particle(i).y + SIN(k) * particle(i).b / 4
+                            particle(j).pos.x = particle(i).pos.x + COS(k) * map(particle(j).pos.x + camera, 0, _WIDTH(0), particle(i).minA, particle(i).maxA / 3)
+                            particle(j).pos.y = particle(i).pos.y + SIN(k) * particle(i).b / 4
                         END IF
                     NEXT
 
                     'ball VS gravitator collision detection:
                     IF debug THEN
-                        LINE (camera + particle(i).x - ball.radius / 2, cameraY + particle(i).y - 180)-STEP(ball.radius, 0), _RGB32(255, 255, 255)
-                        LINE (camera + particle(i).x - ball.radius / 2, cameraY + particle(i).y + 180)-STEP(ball.radius, 0), _RGB32(255, 255, 255)
-                        LINE (camera + particle(i).x - ball.radius * 2, cameraY + particle(i).y - 30)-STEP(0, 60), _RGB32(255, 255, 255)
-                        LINE (camera + particle(i).x + ball.radius * 2, cameraY + particle(i).y - 30)-STEP(0, 60), _RGB32(255, 255, 255)
-                        CIRCLE (particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat), ball.radius * 2.5, _RGB32(255, 255, 255)
+                        LINE (camera + particle(i).pos.x - ball.radius / 2, cameraY + particle(i).pos.y - 180)-STEP(ball.radius, 0), _RGB32(255, 255, 255)
+                        LINE (camera + particle(i).pos.x - ball.radius / 2, cameraY + particle(i).pos.y + 180)-STEP(ball.radius, 0), _RGB32(255, 255, 255)
+                        LINE (camera + particle(i).pos.x - ball.radius * 2, cameraY + particle(i).pos.y - 30)-STEP(0, 60), _RGB32(255, 255, 255)
+                        LINE (camera + particle(i).pos.x + ball.radius * 2, cameraY + particle(i).pos.y - 30)-STEP(0, 60), _RGB32(255, 255, 255)
+                        CIRCLE (particle(i).pos.x + camera, particle(i).pos.y + cameraY + gravitationalFloat), ball.radius * 2.5, _RGB32(255, 255, 255)
                     END IF
 
                     IF state <> HALTED THEN
-                        IF dist(ball.x, ball.y, particle(i).x, particle(i).y + gravitationalFloat) < ball.radius * 2.5 THEN
+                        IF dist(ball.x, ball.y, particle(i).pos.x, particle(i).pos.y + gravitationalFloat) < ball.radius * 2.5 THEN
                             smallPortal = smallPortal + 1
                             IF glowRadius < maxGlowRadius THEN glowRadius = glowRadius + 3
                             particle(i).active = false
@@ -876,7 +909,7 @@ SUB doParticles
                                     particle(j).kind = BUSTEDCELL
                                     particle(j).generation = 0
                                     particle(j).maxGeneration = 50
-                                    particle(j).xVel = COS(RND * _PI(2)) '* 2
+                                    particle(j).vel.x = COS(RND * _PI(2)) '* 2
                                     particle(j).parent = -2
                                 END IF
                             NEXT
@@ -886,17 +919,17 @@ SUB doParticles
                                     particle(j).kind = BUSTEDCELL
                                     particle(j).generation = 0
                                     particle(j).maxGeneration = 100
-                                    particle(j).yVel = SIN(RND * _PI(2)) * 10
+                                    particle(j).vel.y = SIN(RND * _PI(2)) * 10
                                     DO
-                                        particle(j).xVel = COS(RND * _PI(2)) * 10
-                                    LOOP UNTIL SGN(particle(j).xVel) = 1
+                                        particle(j).vel.x = COS(RND * _PI(2)) * 10
+                                    LOOP UNTIL SGN(particle(j).vel.x) = 1
                                     particle(j).parent = -1
                                 END IF
                             NEXT
-                        ELSEIF ball.x > particle(i).x - ball.radius*2 AND _
-                               ball.x < particle(i).x + ball.radius*2 AND _
-                               ball.y > particle(i).y - 180 + gravitationalFloat AND _
-                               ball.y < particle(i).y + 180 + gravitationalFloat THEN
+                        ELSEIF ball.x > particle(i).pos.x - ball.radius*2 AND _
+                               ball.x < particle(i).pos.x + ball.radius*2 AND _
+                               ball.y > particle(i).pos.y - 180 + gravitationalFloat AND _
+                               ball.y < particle(i).pos.y + 180 + gravitationalFloat THEN
                             bigPortal = bigPortal + 1
                             IF particlesSound > 0 THEN _SNDPLAYCOPY particlesSound
                             'glowRadius = 0
@@ -906,40 +939,40 @@ SUB doParticles
                                     particle(j).kind = BUSTEDCELL
                                     particle(j).generation = 0
                                     particle(j).maxGeneration = 50
-                                    'particle(j).yVel = SIN(rnd * _PI(2)) * 10
-                                    particle(j).xVel = COS(RND * _PI(2)) '* 2
+                                    'particle(j).vel.y = SIN(rnd * _PI(2)) * 10
+                                    particle(j).vel.x = COS(RND * _PI(2)) '* 2
                                     particle(j).parent = -2
                                 END IF
                             NEXT
                         END IF
                     END IF
                 CASE BUSTEDCELL
-                    particle(i).yAcc = particle(i).yAcc + gravity
+                    particle(i).acc.y = particle(i).acc.y + gravity
                     IF particle(i).generation > particle(i).maxGeneration THEN
                         particle(i).active = false
                     ELSE
                         IF particle(i).parent = -1 THEN
                             FOR j = 6 TO 4 STEP -1
-                                CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 6, _RGBA32(particle(i).red, particle(i).green, particle(i).blue, map(j, 4, 6, 10, 25))
+                                CircleFill particle(i).pos.x + camera, particle(i).pos.y + cameraY + gravitationalFloat, 6, _RGBA32(particle(i).red, particle(i).green, particle(i).blue, map(j, 4, 6, 10, 25))
                             NEXT
-                            CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 3, _RGB32(255, 255, 255)
+                            CircleFill particle(i).pos.x + camera, particle(i).pos.y + cameraY + gravitationalFloat, 3, _RGB32(255, 255, 255)
                         ELSEIF particle(i).parent = -2 THEN
-                            CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 3, _RGB32(160, 160, 160)
+                            CircleFill particle(i).pos.x + camera, particle(i).pos.y + cameraY + gravitationalFloat, 3, _RGB32(160, 160, 160)
                         END IF
                     END IF
                 CASE FIRE, SMOKE
                     'show
-                    s = dist(particle(i).x, particle(i).y, ball.x, ball.y)
+                    s = dist(particle(i).pos.x, particle(i).pos.y, ball.x, ball.y)
                     s = map(s, 0, ball.radius * 4, 9, 2)
                     IF particle(i).parent > 0 THEN s = 4 'former gravitator cell
                     IF s < 2 THEN s = 2
-                    CircleFill particle(i).x + camera, particle(i).y + cameraY, s, particle(i).color
+                    CircleFill particle(i).pos.x + camera, particle(i).pos.y + cameraY, s, particle(i).color
                 CASE GRAVITATORCELL
                     'show
-                    FOR j = 6 TO 4 STEP -1
-                        CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 6, _RGBA32(particle(i).red, particle(i).green, particle(i).blue, map(j, 4, 6, 10, 25))
+                    FOR j = 7 TO 4 STEP -1
+                        CircleFill particle(i).pos.x + camera, particle(i).pos.y + cameraY + gravitationalFloat, j, _RGBA32(particle(i).red, particle(i).green, particle(i).blue, 15)
                     NEXT
-                    CircleFill particle(i).x + camera, particle(i).y + cameraY + gravitationalFloat, 3, _RGB32(255, 244, 238)
+                    CircleFill particle(i).pos.x + camera, particle(i).pos.y + cameraY + gravitationalFloat, 3, _RGB32(255, 244, 238)
             END SELECT
         END IF
     NEXT
@@ -966,12 +999,11 @@ END SUB
 SUB drawBG
     DIM i AS INTEGER
     FOR i = 1 TO maxBGDecoration
-        IF TIMER - levelSet < respawnDelay THEN
-            LINE (bg(i).x + camera / 2, bg(i).y + cameraY)-STEP(bg(i).w, bg(i).h), _RGBA32(bg(i).red, bg(i).green, bg(i).blue, map(TIMER - levelSet, 0, respawnDelay, 0, 255)), BF
-        ELSE
-            LINE (bg(i).x + camera / 2, bg(i).y + cameraY)-STEP(bg(i).w, bg(i).h), bg(i).color, BF
-        END IF
+        LINE (bg(i).pos.x + camera / 2, bg(i).pos.y + cameraY)-STEP(bg(i).w, bg(i).h), bg(i).color, BF
     NEXT
+    IF TIMER - levelSet < respawnDelay THEN
+        LINE (0, 0)-(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, map(TIMER - levelSet, 0, respawnDelay, 255, 0)), BF
+    END IF
 END SUB
 
 FUNCTION noise! (x AS SINGLE, y AS SINGLE, z AS SINGLE)
@@ -1056,5 +1088,9 @@ FUNCTION noise! (x AS SINGLE, y AS SINGLE, z AS SINGLE)
         IF zf >= 1.0 THEN zi = zi + 1: zf = zf - 1
     NEXT
     noise! = r
+END FUNCTION
+
+FUNCTION lerp! (start!, stp!, amt!)
+    lerp! = amt! * (stp! - start!) + start!
 END FUNCTION
 
