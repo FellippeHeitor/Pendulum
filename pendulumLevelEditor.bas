@@ -1,15 +1,6 @@
-'Fire ball on a pendulum reaching portals. Until we get a better name.
+'Level Editor for Fire ball on a pendulum reaching portals. Until we get a better name.
 '-----------------------------------------------------------------------------------------------------
-'All assets can be downloaded from https://github.com/FellippeHeitor/Pendulum
-'
-'Original game concept by Voodoo/h8games: https://itunes.apple.com/us/app/fire-rides/id1279296287?mt=8
-'
-'Source audio material:
-'    Fireball whoosh sound: https://freesound.org/s/248116/
-'    Thump + Match sizzle sound: https://freesound.org/s/368606/ + https://freesound.org/s/237406/
-'    Glass sound: https://freesound.org/s/371091/
-'    Falling particles: https://freesound.org/s/408343/
-'
+
 OPTION _EXPLICIT
 CONST true = -1, false = 0
 CONST debug = false
@@ -48,7 +39,7 @@ DIM SHARED whooshSound AS LONG, fireOutSound AS LONG
 DIM SHARED glassSound AS LONG, particlesSound AS LONG
 DIM SHARED nextTetherPoint.x AS LONG, nextTetherPoint.y AS LONG
 DIM SHARED stretchLevel AS INTEGER, stretchingString AS newVector
-DIM SHARED totalPortals AS INTEGER
+DIM SHARED totalPortals AS INTEGER, willPlay AS _BYTE
 
 CONST maxGravitationalFloat = 20
 CONST maxGlowRadius = 21
@@ -122,9 +113,9 @@ TYPE newItem
     maxGeneration AS INTEGER
 END TYPE
 
-CONST maxBGDecoration = 20
-REDIM SHARED bg(1 TO maxBGDecoration + 1) AS newItem
-REDIM SHARED block(500) AS newItem
+CONST maxBGDecoration = 40 'multiples of 4
+REDIM SHARED bg(1 TO maxBGDecoration) AS newItem
+REDIM SHARED block(200) AS newItem
 REDIM SHARED particle(5000) AS newItem
 REDIM SHARED deathNote(1 TO 1) AS STRING, deathNoteIndex AS INTEGER
 DIM SHARED totalBlocks AS LONG
@@ -135,7 +126,7 @@ DIM SHARED rndTable(1 TO maxRND) AS SINGLE
 DIM SHARED rndSeed AS LONG, rndIndex AS LONG
 
 RANDOMIZE 37
-DIM i&
+DIM i AS LONG
 FOR i& = 1 TO maxRND
     rndTable(i&) = noise(i&, 0, 0)
 NEXT
@@ -180,205 +171,59 @@ levelSet = TIMER
 
 deathNoteIndex = _CEIL(RND * UBOUND(deathNote))
 
+DIM SHARED mx, my, mb
+DIM maxLineLength AS LONG, blockData$
+
 DO
-    IF _KEYDOWN(13) THEN
-        IF NOT waitForRelease AND NOT willRespawn THEN
-            IF state <> STRETCHING AND state <> SWINGING THEN
-                state = STRETCHING
-                started = true
-                stretchLevel = 0
-                IF timerSet = false THEN
-                    timerSet = true
-                    levelStarted = TIMER
-                END IF
-                ball.origin.x = nextTetherPoint.x
-                ball.origin.y = nextTetherPoint.y
-            END IF
-        END IF
-    ELSE
-        IF waitForRelease THEN
-            waitForRelease = false
-        ELSE
-            IF state = SWINGING AND NOT finished THEN
-                state = FALLING
-            END IF
-        END IF
-    END IF
+    WHILE _MOUSEINPUT: WEND
+    mx = map(_MOUSEX, 0, _WIDTH, 0, arenaWidth)
+    my = map(_MOUSEY, 0, _HEIGHT, 0, arenaHeight)
+    mb = _MOUSEBUTTON(1)
 
-    k = _KEYHIT
-    IF k = 9 AND _KEYDOWN(100304) = false THEN GOTO setNewLevel
-    IF k = 9 AND _KEYDOWN(100304) AND level > 1 THEN level = level - 2: GOTO setNewLevel
-    IF k = ASC("B") OR k = ASC("b") THEN showBG = NOT showBG
-    IF k = ASC("W") OR k = ASC("w") THEN IF NOT _KEYDOWN(100304) THEN glowRadius = glowRadius + 3 ELSE glowRadius = glowRadius + 1
-    IF k = ASC("S") OR k = ASC("s") THEN IF NOT _KEYDOWN(100304) THEN glowRadius = glowRadius - 3 ELSE glowRadius = glowRadius - 1
-
-    doPhysics
-
-    IF ball.x - ball.radius > arenaWidth THEN madeIt = true
-
-    doCamera
-
-    IF willRespawn THEN LINE (0, 0)-STEP(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 30), BF ELSE CLS
-    IF showBG THEN
-        drawBG
-    END IF
+    CLS
     drawBlocks
 
-    IF state = STRETCHING THEN
-        stretchLevel = stretchLevel + 10
-        IF stretchLevel = 100 THEN
-            IF whooshSound > 0 THEN _SNDPLAYCOPY whooshSound
-            state = SWINGING
+    showHUD "level:" + STR$(level) + " mx:" + STR$(mx) + " my:" + STR$(my)
 
-            IF ball.origin.x > arenaWidth THEN
-                finished = true
+    k = _KEYHIT
+
+    IF (k = ASC("c") OR k = ASC("C")) AND (_KEYDOWN(100306) OR _KEYDOWN(100305)) THEN
+        'copy
+        maxLineLength = 70
+        blockData$ = "DATA " + STR$(level) + "," + STR$(totalBlocks / 2) + ","
+        FOR i = 1 TO totalBlocks STEP 2
+            blockData$ = blockData$ + STR$(block(i).h) + ","
+            IF LEN(blockData$) >= maxLineLength THEN
+                blockData$ = LEFT$(blockData$, LEN(blockData$) - 1)
+                maxLineLength = LEN(blockData$) + 70
+                blockData$ = blockData$ + CHR$(10) + "DATA "
             END IF
-
-            ball.arm = dist(ball.x, ball.y, ball.origin.x, ball.origin.y)
-
-            diff.y = ball.y - ball.origin.y
-            diff.x = ball.x - ball.origin.x
-            ball.angle = _ATAN2(diff.x, diff.y)
-
-            ' Eliminate radial velocity component but keep the tangential component.
-            vt = ball.x.velocity * -COS(ball.angle) + ball.y.velocity * SIN(ball.angle)
-            ball.x.velocity = vt * -COS(ball.angle)
-            ball.y.velocity = vt * SIN(ball.angle)
-        ELSE
-            stretchingString.x = lerp(ball.x, ball.origin.x, stretchLevel / 100)
-            stretchingString.y = lerp(ball.y, ball.origin.y, stretchLevel / 100)
-            FOR p = 1 TO 10
-                thisParticle = addParticle(stretchingString.x, stretchingString.y, FIRE, 0)
-            NEXT
-            ThickLine ball.x + camera, ball.y + cameraY, stretchingString.x + camera, stretchingString.y + cameraY, _RGB32(0, 0, 0), 8
-            ThickLine ball.x + camera, ball.y + cameraY, stretchingString.x + camera, stretchingString.y + cameraY, _RGB32(255, 255, 255), 4
-        END IF
-    ELSEIF state = SWINGING THEN
-        ThickLine ball.x + camera, ball.y + cameraY, ball.origin.x + camera, ball.origin.y + cameraY, _RGB32(0, 0, 0), 8
-        ThickLine ball.x + camera, ball.y + cameraY, ball.origin.x + camera, ball.origin.y + cameraY, _RGB32(255, 255, 255), 4
-    END IF
-
-    IF NOT willRespawn THEN
-        FOR p = 1 TO 30
-            tx = ball.x + COS(p) * (RND * ball.radius)
-            ty = ball.y + SIN(p) * (RND * ball.radius)
-            thisParticle = addParticle(tx, ty, FIRE, 0)
         NEXT
-        FOR p = ball.radius + glowRadius TO ball.radius + 1 STEP -1
-            CircleFill ball.x + camera, ball.y + cameraY, p, _RGBA32(238, 216, 94, map(p, ball.radius + 1, ball.radius + glowRadius, 15, 5))
-        NEXT
-        CircleFill ball.x + camera, ball.y + cameraY, ball.radius, _RGBA32(255, 255, 255, 200)
-    END IF
-
-    IF state = SWINGING THEN
-        FOR p = 1 TO 5
-            tx = ball.origin.x + COS(p) * (RND * ball.radius / 4)
-            ty = ball.origin.y + SIN(p) * (RND * ball.radius / 4)
-            thisParticle = addParticle(tx, ty, FIRE, 0)
-        NEXT
-    END IF
-
-    doParticles
-
-    IF state = HALTED THEN
-        IF NOT timerSet THEN m$ = "Hold ENTER to start..." ELSE m$ = "Hold ENTER to continue..."
-        IF willRespawn THEN
-            m$ = deathNote(deathNoteIndex)
-            LINE (0, 0)-(_WIDTH, _HEIGHT), _RGBA32(72, 0, 0, 180), BF
-        ELSE
-            IF TIMER - hideRed < respawnDelay / 2 THEN
-                LINE (0, 0)-(_WIDTH, _HEIGHT), _RGBA32(72, 0, 0, map(TIMER - hideRed, 0, respawnDelay / 2, 180, 0)), BF
+        IF RIGHT$(blockData$, 1) = "," THEN blockData$ = LEFT$(blockData$, LEN(blockData$) - 1)
+        _CLIPBOARD$ = blockData$
+    ELSEIF (k = ASC("r") OR k = ASC("R")) AND (_KEYDOWN(100306) OR _KEYDOWN(100305)) THEN
+        'add noise/randomize
+        FOR i = 1 TO totalBlocks
+            IF i MOD 2 = 0 THEN
+                block(i).pos.y = block(i).pos.y + (100 - noise(i, 0, 0) * 200)
+            ELSE
+                block(i).h = block(i).h + (100 - noise(i, 0, 0) * 200)
             END IF
-        END IF
-        fontSize = 3
-        printLarge _WIDTH / 2 - printWidth(m$) / 2, _HEIGHT / 2 - fontHeight / 2, m$
-    END IF
-
-    IF timerSet THEN
-        IF levelStarted > TIMER THEN levelStarted = levelStarted - 86400
-        m$ = STR$(TIMER - levelStarted)
-        m$ = LEFT$(m$, INSTR(m$, ".") + 1)
-        fontSize = 2
-        printLarge _WIDTH - printWidth(m$), _HEIGHT - fontHeight, m$
-    END IF
-
-    IF finished THEN
-        m$ = "You made it!"
-        fontSize = 3
-        printLarge _WIDTH / 2 - printWidth(m$) / 2, _HEIGHT / 2 - fontHeight / 2, m$
-    ELSE
-        IF started THEN
-            m$ = STR$(TIMER - levelStarted)
-            m$ = LEFT$(m$, INSTR(m$, ".") + 1)
-            fontSize = 2
-            printLarge _WIDTH - printWidth(m$), _HEIGHT - fontHeight, m$
-        END IF
-    END IF
-
-    showHUD
-
-    _DISPLAY
-    IF frameRate < 60 AND TIMER - frameRateRestoreTimer > respawnDelay THEN
-        frameRate = 60
-        willRespawn = false
-        hideRed = TIMER
-    END IF
-    _LIMIT frameRate
-
-    IF ball.x - ball.radius > arenaWidth THEN madeIt = true
-
-    IF madeIt THEN
-        timeFinished = TIMER
-        t.m$ = STR$(timeFinished - levelStarted)
-        t.m$ = LEFT$(t.m$, INSTR(t.m$, ".") + 1)
-        IF _KEYDOWN(13) THEN waitForRelease = true
-        DO
-            IF willRespawn THEN LINE (0, 0)-STEP(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 30), BF ELSE CLS
-            IF showBG THEN
-                drawBG
-            END IF
-            drawBlocks
-            doParticles
-
-            fontSize = 3
-            m$ = "You made it in" + t.m$ + " seconds!"
-            printLarge _WIDTH / 2 - printWidth(m$) / 2, _HEIGHT / 2 - fontHeight / 2, m$
-            m$ = "(hit ENTER)"
-            printLarge _WIDTH / 2 - printWidth(m$) / 2, _HEIGHT / 2 - fontHeight / 2 + fontHeight, m$
-
-            IF _KEYDOWN(13) AND NOT waitForRelease THEN
-                EXIT DO
-            ELSEIF NOT _KEYDOWN(13) AND waitForRelease THEN
-                waitForRelease = false
-            END IF
-
-            _DISPLAY
-            _LIMIT 60
-        LOOP
-
-        setNewLevel:
-        FOR p = 1 TO UBOUND(particle)
-            particle(p).active = false
         NEXT
+    ELSEIF k = 9 AND NOT (_KEYDOWN(100304) OR _KEYDOWN(100303)) THEN
         level = level + 1
         setRand level
         generateArena
-        finished = false
-        madeIt = false
-        glowRadius = 3
-        camera = 0
-        cameraY = 0
-        ball.x = ball.radius
-        ball.y = respawnOffset
-        ball.y.acceleration = 0
-        ball.y.velocity = 0
-        ball.x.acceleration = 0
-        ball.x.velocity = 0
-        started = false
-        state = HALTED
-        timerSet = false
-        levelSet = TIMER
+    ELSEIF k = 9 AND (_KEYDOWN(100304) OR _KEYDOWN(100303)) THEN
+        IF level > 1 THEN
+            level = level - 1
+            setRand level
+            generateArena
+        END IF
     END IF
+
+    _DISPLAY
+    _LIMIT 30
 LOOP
 
 charSet8x16: 'from libqb.cpp
@@ -487,8 +332,7 @@ SUB doPhysics
     Theta = ball.angle
 
     IF state = FALLING OR state = STRETCHING THEN
-        ball.x.acceleration = ABS(ball.x.acceleration)
-        IF ball.x.acceleration > .5 THEN ball.x.acceleration = .5
+        ball.x.acceleration = 0
         ball.y.acceleration = GravConst
         ball.x.velocity = ball.x.velocity + DeltaTime * ball.x.acceleration
         ball.y.velocity = ball.y.velocity + DeltaTime * ball.y.acceleration
@@ -612,55 +456,15 @@ FUNCTION map! (value!, minRange!, maxRange!, newMinRange!, newMaxRange!)
 END FUNCTION
 
 SUB CircleFill (CX AS LONG, CY AS LONG, R AS LONG, C AS _UNSIGNED LONG)
-    'This sub from here: http://www.qb64.net/forum/index.php?topic=1848.msg17254#msg17254
-    DIM Radius AS LONG
-    DIM RadiusError AS LONG
-    DIM X AS LONG
-    DIM Y AS LONG
-
-    Radius = ABS(R)
-    RadiusError = -Radius
-    X = Radius
-    Y = 0
-
-    IF Radius = 0 THEN PSET (CX, CY), C: EXIT SUB
-
-    ' Draw the middle span here so we don't draw it twice in the main loop,
-    ' which would be a problem with blending turned on.
-    LINE (CX - X, CY)-(CX + X, CY), C, BF
-
-    WHILE X > Y
-
-        RadiusError = RadiusError + Y * 2 + 1
-
-        IF RadiusError >= 0 THEN
-
-            IF X <> Y + 1 THEN
-                LINE (CX - Y, CY - X)-(CX + Y, CY - X), C, BF
-                LINE (CX - Y, CY + X)-(CX + Y, CY + X), C, BF
-            END IF
-
-            X = X - 1
-            RadiusError = RadiusError - X * 2
-
-        END IF
-
-        Y = Y + 1
-
-        LINE (CX - X, CY - Y)-(CX + X, CY - Y), C, BF
-        LINE (CX - X, CY + Y)-(CX + X, CY + Y), C, BF
-
-    WEND
-
+    PSET (CX, CY), C
 END SUB
 
 
 SUB generateArena
     DIM i AS LONG, j AS LONG, k AS LONG, lastGravitator AS LONG
     DIM w AS SINGLE, h AS SINGLE, x AS SINGLE, y AS SINGLE, s1 AS SINGLE, s2 AS SINGLE
-    DIM colorVariation AS INTEGER, a AS SINGLE
+    DIM colorVariation AS INTEGER
     DIM thisParticle AS LONG, minimumDistance AS INTEGER
-    DIM levelBlocks AS LONG
 
     level.r = 80 + getRND * 176
     level.g = 80 + getRND * 176
@@ -668,167 +472,75 @@ SUB generateArena
 
     m$ = "Level" + STR$(level)
     fontSize = 8
-    'FOR k = 1 TO maxBGDecoration
-    '    IF k MOD 1 = 0 THEN x = 0: y = 0
-    '    IF k MOD 2 = 0 THEN x = bgWidth / 2: y = 0
-    '    IF k MOD 3 = 0 THEN x = 0: y = bgHeight / 2
-    '    IF k MOD 4 = 0 THEN x = bgWidth / 2: y = bgHeight / 2
-    '    LINE (0, 0)-STEP(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 15), BF
-    '    bg(k).w = getRND * bgWidth
-    '    bg(k).h = getRND * bgHeight
-    '    bg(k).pos.x = (getRND * (bgWidth / 4) + x) - bg(k).w / 2
-    '    bg(k).pos.y = (getRND * (bgHeight / 4) + y) - bg(k).h / 2
-    '    colorVariation = -(getRND * 200)
-    '    bg(k).red = level.r + colorVariation
-    '    bg(k).green = level.g + colorVariation
-    '    bg(k).blue = level.b + colorVariation
-    '    bg(k).color = _RGB32(level.r + colorVariation, level.g + colorVariation, level.b + colorVariation)
-    '    LINE (bg(k).pos.x / (arenaRatio.x * 2), bg(k).pos.y / arenaRatio.y)-STEP(bg(k).w / (arenaRatio.x * 2), bg(k).h / arenaRatio.y), bg(k).color, BF
-    '    COLOR _RGB32(0, 0, 0)
-    '    printLarge _WIDTH / 2 - printWidth(m$) / 2 + fontSize / 2, _HEIGHT / 2 - fontHeight / 2 + fontSize / 2, m$
-    '    COLOR _RGB32(255, 255, 255)
-    '    printLarge _WIDTH / 2 - printWidth(m$) / 2, _HEIGHT / 2 - fontHeight / 2, m$
-    '    _DISPLAY
-    '    _LIMIT 24
-    'NEXT
-
-    i = 0
-    FOR k = 0 TO bgHeight STEP bgHeight / maxBGDecoration
-        i = i + 1
-        bg(i).w = bgWidth
-        bg(i).h = bgHeight / maxBGDecoration
-        bg(i).pos.x = 0
-        bg(i).pos.y = k
-        bg(i).red = map(k, 0, bgHeight, level.r, 0)
-        bg(i).green = map(k, 0, bgHeight, level.g, 0)
-        bg(i).blue = map(k, 0, bgHeight, level.b, 0)
-        bg(i).color = _RGB32(bg(i).red, bg(i).green, bg(i).blue)
-        LINE (bg(i).pos.x / (arenaRatio.x * 2), bg(i).pos.y / arenaRatio.y)-STEP(bg(i).w / (arenaRatio.x * 2), bg(i).h / arenaRatio.y), bg(i).color, BF
+    totalPortals = 0
+    FOR k = 1 TO maxBGDecoration
+        IF k MOD 1 = 0 THEN x = 0: y = 0
+        IF k MOD 2 = 0 THEN x = bgWidth / 2: y = 0
+        IF k MOD 3 = 0 THEN x = 0: y = bgHeight / 2
+        IF k MOD 4 = 0 THEN x = bgWidth / 2: y = bgHeight / 2
+        LINE (0, 0)-STEP(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 15), BF
+        bg(k).w = getRND * bgWidth
+        bg(k).h = getRND * bgHeight
+        bg(k).pos.x = (getRND * (bgWidth / 4) + x) - bg(k).w / 2
+        bg(k).pos.y = (getRND * (bgHeight / 4) + y) - bg(k).h / 2
+        colorVariation = -(getRND * 200)
+        bg(k).red = level.r + colorVariation
+        bg(k).green = level.g + colorVariation
+        bg(k).blue = level.b + colorVariation
+        bg(k).color = _RGB32(level.r + colorVariation, level.g + colorVariation, level.b + colorVariation)
+        LINE (bg(k).pos.x / (arenaRatio.x * 2), bg(k).pos.y / arenaRatio.y)-STEP(bg(k).w / (arenaRatio.x * 2), bg(k).h / arenaRatio.y), bg(k).color, BF
         COLOR _RGB32(0, 0, 0)
         printLarge _WIDTH / 2 - printWidth(m$) / 2 + fontSize / 2, _HEIGHT / 2 - fontHeight / 2 + fontSize / 2, m$
         COLOR _RGB32(255, 255, 255)
         printLarge _WIDTH / 2 - printWidth(m$) / 2, _HEIGHT / 2 - fontHeight / 2, m$
         _DISPLAY
-        _LIMIT 24
     NEXT
 
     totalBlocks = 0
-    totalPortals = 0
     minimumDistance = 5
 
-    SELECT CASE level
-        CASE 1: RESTORE level1
-        CASE 2: RESTORE level2
-    END SELECT
+    FOR i = 0 TO arenaWidth STEP blockSize
+        'top block
+        x = x + .1
+        IF x > _PI(2) THEN x = x - _PI(2)
+        h = arenaHeight * ABS(SIN(x) / 6) * getRND
+        s1 = h
+        y = 0
+        GOSUB addBlock
 
-    IF level < 3 THEN
-        READ levelBlocks, levelBlocks
-        IF UBOUND(block) < levelBlocks THEN REDIM block(1 TO totalBlocks) AS newItem
-        FOR i = 1 TO levelBlocks
-            x = i * blockSize - blockSize
+        'bottom block
+        h = arenaHeight
+        y = s1 + 500
+        s2 = y
+        GOSUB addBlock
 
-            y = 0
-            READ h
-            s1 = h
-            GOSUB addblock
+        IF i = 0 THEN respawnOffset = s1 + ((s2 - s1) / 2)
 
-            h = arenaHeight
-            y = s1 + 500
-            s2 = y
-            GOSUB addblock
+        IF willPlay THEN
+            IF (s2 - s1) > 200 AND i - lastGravitator > blockSize * minimumDistance AND i < arenaWidth - blockSize * 2 THEN 'AND (s2 - s1) < 450
+                'add gravitators between these blocks
+                totalPortals = totalPortals + 1
+                thisParticle = addParticle(i + blockSize / 2, s1 + _CEIL(getRND * (s2 - s1)), GRAVITATOR, 0)
+                lastGravitator = i + blockSize / 2
+                particle(thisParticle).a = 25
+                particle(thisParticle).minA = 1
+                particle(thisParticle).maxA = 100
+                particle(thisParticle).multA = -1
+                particle(thisParticle).b = 150
+                particle(thisParticle).minb = 150
+                particle(thisParticle).maxB = 150
+                particle(thisParticle).multB = 1
 
-            IF i = 1 THEN respawnOffset = s1 + ((s2 - s1) / 2)
-
-            GOSUB addGravitator
-        NEXT
-    ELSE
-        FOR i = 0 TO arenaWidth STEP blockSize
-            'top block
-            a = a + .1
-            IF a > _PI(2) THEN a = a - _PI(2)
-            h = arenaHeight * ABS(SIN(a) / 6) * getRND
-            s1 = h
-            y = 0
-            x = i
-            GOSUB addblock
-
-            'bottom block
-            h = arenaHeight
-            y = s1 + 500
-            s2 = y
-            x = i
-            GOSUB addblock
-
-            IF i = 0 THEN respawnOffset = s1 + ((s2 - s1) / 2)
-
-            GOSUB addGravitator
-        NEXT
-    END IF
+                minimumDistance = 5 + INT(getRND * 10)
+            END IF
+        END IF
+    NEXT
     EXIT SUB
 
-    level1:
-    DATA 1,151,288.7068,369.4666,326.5932,343.8348,334.274,337.1155
-    DATA 405.0195,416.3582,461.7679,479.3741,450.5628,523.1738,546.491
-    DATA 464.9045,492.1196,525.2876,430.9337,424.5563,388.2738,395.8929
-    DATA 404.7736,358.8666,434.7971,405.3706,354.8761,440.56,434.6482
-    DATA 453.789,457.7938,517.0486,575.4738,515.9041,622.267,612.9321
-    DATA 589.6077,573.6591,604.2234,629.9976,614.0717,551.1848,556.7783
-    DATA 564.7195,450.5744,432.2998,440.2343,498.2602,485.5125,475.5098
-    DATA 412.0817,428.9691,399.97,486.5081,569.4984,564.8834,537.2183
-    DATA 473.1758,521.8494,616.2277,555.2164,618.0811,620.6875,557.9141
-    DATA 494.1108,480.9797,499.753,484.5423,481.2356,516.3153,529.9735
-    DATA 492.8992,478.6121,488.2185,526.9644,524.4595,497.9493,493.0078
-    DATA 611.0283,545.3854,620.6437,641.689,614.6556,576.5265,607.7795
-    DATA 579.9554,627.5239,468.4198,515.1279,443.188,503.9984,436.29
-    DATA 478.1479,453.955,485.6319,507.5492,524.4862,487.0125,558.6647
-    DATA 579.2969,591.4767,546.8036,599.0244,645.8203,698.6407,612.4592
-    DATA 637.3264,641.0941,687.6874,650.2979,561.3732,596.2802,600.0132
-    DATA 536.3252,486.1552,454.7284,484.2022,466.2347,453.8502,526.9757
-    DATA 538.5257,540.4072,536.3232,480.7468,548.4427,526.4111,612.6272
-    DATA 600.9537,674.0999,654.0022,641.5022,692.196,700.331,600.1239
-    DATA 656.3761,551.261,549.1577,553.907,557.8641,447.1231,549.7889
-    DATA 494.1699,508.7688,470.9445,518.621,469.4185,386.5806,471.0748
-    DATA 414.2382,452.846,390.9772,448.0512,414.9118
-
-    level2:
-    DATA 2,151,720,760,760,740,680,620,590,570,570,590,680,730
-    DATA 750,780,790,790,780,770,730,700,690,690,680,670,660
-    DATA 660,660,660,680,710,760,790,830,880,930,1000,1060,1150
-    DATA 1210,1280,1350,1430,1490,1550,1600,1640,1700,1740,1810
-    DATA 1850,1960,2040,2140,2210,2270,2340,2410,2490,2550,2620
-    DATA 2670,2720,2770,2840,2930,3010,3050,3120,3170,3210,3290
-    DATA 3390,3390,3440,3460,3480,3490,3520,3540,3580,3600,3620
-    DATA 3620,3630,3630,3620,3600,3580,3560,3540,3500,3480,3440
-    DATA 3430,3430,3450,3490,3520,3550,3610,3630,3650,3660,3650
-    DATA 3640,3620,3600,3570,3560,3560,3560,3560,3560,3550,3550
-    DATA 3550,3530,3520,3520,3530,3530,3580,3620,3630,3690,3740
-    DATA 3790,3840,3890,3940,4000,4080,4120,4160,4190,4210,4220
-    DATA 4230,4240,4240,4240,4250,4250,4250,4250,4250,4240,4230
-    DATA 4230,4230,4230
-
-    addGravitator:
-    IF (s2 - s1) > 200 AND x - lastGravitator > blockSize * minimumDistance AND x < arenaWidth - blockSize * 2 THEN 'AND (s2 - s1) < 450
-        'add gravitators between these blocks
-        totalPortals = totalPortals + 1
-        thisParticle = addParticle(x + blockSize / 2, s1 + _CEIL(getRND * (s2 - s1)), GRAVITATOR, 0)
-        lastGravitator = x + blockSize / 2
-        particle(thisParticle).a = 25
-        particle(thisParticle).minA = 1
-        particle(thisParticle).maxA = 100
-        particle(thisParticle).multA = -1
-        particle(thisParticle).b = 150
-        particle(thisParticle).minb = 150
-        particle(thisParticle).maxB = 150
-        particle(thisParticle).multB = 1
-
-        minimumDistance = 5 + INT(getRND * 10)
-    END IF
-    RETURN
-
-    addblock:
+    addBlock:
     totalBlocks = totalBlocks + 1
     IF totalBlocks > UBOUND(block) THEN REDIM _PRESERVE block(UBOUND(block) + 99) AS newItem
-    block(totalBlocks).pos.x = x
+    block(totalBlocks).pos.x = i
     block(totalBlocks).pos.y = y
     block(totalBlocks).h = h
     block(totalBlocks).w = blockSize
@@ -863,50 +575,28 @@ SUB drawBlocks
     DIM i AS SINGLE, y AS SINGLE, h AS SINGLE
     DIM blockSize AS SINGLE
     DIM s1 AS INTEGER, s2 AS INTEGER
+    DIM c AS _UNSIGNED LONG
 
-    margin = 3
+    margin = 1
     ballHit = false
-    blockLoopStart = INT(ABS(camera) / (block(1).w / 2)) - 2
-    IF blockLoopStart < 1 THEN blockLoopStart = 1
-    FOR j = blockLoopStart TO totalBlocks
-        i = block(j).pos.x + camera
-        IF i > _WIDTH(0) THEN EXIT FOR
-        y = block(j).pos.y + cameraY
-        h = block(j).h
-        blockSize = block(j).w
+    FOR j = 1 TO totalBlocks
+        i = block(j).pos.x / arenaRatio.x
+        y = block(j).pos.y / arenaRatio.y
+        h = block(j).h / arenaRatio.y
+        blockSize = block(j).w / arenaRatio.x
         LINE (i, y - margin)-STEP(blockSize, h + margin), _RGB32(0, 0, 0), BF
-        LINE (i + margin, y)-STEP(blockSize - (margin * 2), h - margin), block(j).color, BF
-        IF ballHit = false THEN
-            ballHit = checkCollision(ball.x, ball.y, ball.radius, i, y - margin, blockSize, h + margin)
-        END IF
 
-        IF ball.x > block(j).pos.x AND ball.x < block(j).pos.x + block(j).w AND block(j).pos.y = 0 THEN
-            IF j + 4 <= UBOUND(block) THEN
-                nextTetherPoint.x = block(j + 4).pos.x + block(j + 4).w / 2
-                nextTetherPoint.y = block(j + 4).pos.y + block(j + 4).h
-                s1 = block(j + 4).h
-                s2 = s1 + 500
-                respawnOffset = s1 + ((s2 - s1) / 2)
-                IF STR$(respawnOffset) = STR$(INT(respawnOffset)) THEN
-                    IF respawnOffset >= 328 THEN
-                        checkOffset = respawnOffset - 328
-                        IF checkOffset MOD 3 = 0 THEN respawnOffset = respawnOffset + .1
-                    END IF
-                END IF
-            ELSE
-                nextTetherPoint.x = ball.x + _WIDTH(gameScreen) / 5
-                nextTetherPoint.y = 0
-                finished = true
+        IF block(j).pos.x > mx - block(j).w * 3 AND block(j).pos.x + block(j).w < mx + block(j).w * 3 THEN
+            c = _RGB32(255, 255, 255)
+            IF mb AND block(j).pos.y = 0 THEN
+                block(j).h = my - 250
+                block(j + 1).pos.y = my + 250
             END IF
-            IF nextTetherPoint.x < ball.x THEN
-                nextTetherPoint.x = ball.x + _WIDTH(gameScreen) / 5
-                nextTetherPoint.y = 0
-            END IF
+        ELSE
+            c = block(j).color
         END IF
+        LINE (i + margin, y)-STEP(blockSize - (margin * 2), h - margin), c, BF
     NEXT
-    IF TIMER - levelSet < respawnDelay THEN
-        LINE (0, 0)-(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, map(TIMER - levelSet, 0, respawnDelay, 255, 0)), BF
-    END IF
 END SUB
 
 FUNCTION addParticle (x AS SINGLE, y AS SINGLE, kind AS INTEGER, parent AS LONG)
@@ -925,10 +615,10 @@ FUNCTION addParticle (x AS SINGLE, y AS SINGLE, kind AS INTEGER, parent AS LONG)
         REDIM _PRESERVE particle(1 TO UBOUND(particle) + 99) AS newItem
     END IF
 
-    particle(newParticle).pos.x = x
+    particle(newParticle).pos.x = x / arenaRatio.x
     particle(newParticle).vel.x = 0
     particle(newParticle).acc.x = 0
-    particle(newParticle).pos.y = y
+    particle(newParticle).pos.y = y / arenaRatio.y
     particle(newParticle).vel.y = 0
     particle(newParticle).acc.y = 0
     particle(newParticle).kind = kind
@@ -1111,15 +801,15 @@ SUB doParticles
                             particle(i).active = false
                             IF glassSound > 0 THEN _SNDPLAYCOPY glassSound
 
-                            'FOR j = i + 1 TO i + ellipsisPlot + 1
-                            '    IF particle(j).parent = i THEN
-                            '        particle(j).kind = BUSTEDCELL
-                            '        particle(j).generation = 0
-                            '        particle(j).maxGeneration = 50
-                            '        particle(j).vel.x = COS(RND * _PI(2)) '* 2
-                            '        particle(j).parent = -2
-                            '    END IF
-                            'NEXT
+                            FOR j = i + 1 TO i + ellipsisPlot + 1
+                                IF particle(j).parent = i THEN
+                                    particle(j).kind = BUSTEDCELL
+                                    particle(j).generation = 0
+                                    particle(j).maxGeneration = 50
+                                    particle(j).vel.x = COS(RND * _PI(2)) '* 2
+                                    particle(j).parent = -2
+                                END IF
+                            NEXT
 
                             FOR j = i + ellipsisPlot + 1 TO i + ellipsisPlot * 2
                                 IF particle(j).parent = i THEN
@@ -1329,14 +1019,9 @@ FUNCTION printWidth (text$)
     printWidth = fontWidth * LEN(text$)
 END FUNCTION
 
-SUB showHUD
-    DIM hud$
+SUB showHUD (hud$)
     fontSize = 2
     LINE (0, _HEIGHT - fontHeight)-(_WIDTH, _HEIGHT), _RGBA32(0, 0, 0, 40), BF
-    IF totalPortals THEN
-        hud$ = "Portals to destroy:" + STR$(totalPortals) + SPACE$(4)
-    END IF
-    hud$ = hud$ + "Score:" + STR$(score)
     COLOR _RGB32(0, 0, 0)
     printLarge fontSize / 2, _HEIGHT - fontHeight + fontSize / 2, hud$
     COLOR _RGB32(255, 255, 255)
